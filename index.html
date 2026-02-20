@@ -3,43 +3,381 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Image Loader</title>
+    <title>Pose-Tracked Image Overlay</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/addons/p5.sound.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose"></script>
     <style>
-        body { font-family: Arial, sans-serif; }
-        .image-result { margin-top: 20px; }
-        img { max-width: 100%; height: auto; }
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #1a1a1a;
+            margin: 0;
+            padding: 20px;
+            color: white;
+        }
+        .container {
+            background-color: #2a2a2a;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+            max-width: 900px;
+            width: 100%;
+        }
+        h1 {
+            color: #00d4ff;
+            text-align: center;
+            margin: 0 0 20px 0;
+        }
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .control-group {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        input[type="text"],
+        input[type="file"],
+        input[type="range"] {
+            padding: 10px;
+            border: 1px solid #444;
+            border-radius: 4px;
+            background-color: #333;
+            color: white;
+            font-size: 14px;
+            flex: 1;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #00d4ff;
+            color: #000;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #00a8cc;
+        }
+        #p5-container {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            margin-top: 20px;
+            border: 2px solid #00d4ff;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .info {
+            background-color: #333;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+        .status {
+            color: #00d4ff;
+            font-weight: bold;
+        }
+        label {
+            display: block;
+            margin-bottom: 10px;
+            color: #aaa;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
-    <h1>Image Loader</h1>
-    <input type="text" id="url-input" placeholder="Enter image URL" />
-    <input type="file" id="file-input" accept="image/*" />
-    <button id="load-button">Load Image</button>
+    <div class="container">
+        <h1>🎬 Pose-Tracked Image Overlay</h1>
+        
+        <div class="controls">
+            <label>Video Input:</label>
+            <div class="control-group">
+                <input type="file" id="video-input" accept="video/*">
+                <button onclick="loadVideo()">Load Video</button>
+            </div>
 
-    <div class="image-result" id="image-result"></div>
+            <label>Overlay Image URL or File:</label>
+            <div class="control-group">
+                <input type="text" id="image-url" placeholder="Enter image URL or select file">
+                <input type="file" id="image-input" accept="image/*">
+            </div>
+
+            <label>Overlay Opacity: <span id="opacity-value">1.0</span></label>
+            <input type="range" id="opacity-slider" min="0" max="1" step="0.1" value="1">
+
+            <label>Overlay Scale: <span id="scale-value">1.0</span></label>
+            <input type="range" id="scale-slider" min="0.5" max="3" step="0.1" value="1">
+
+            <button onclick="startPoseTracking()" style="width: 100%; padding: 15px; font-size: 16px;">
+                ▶️ Start Pose Tracking
+            </button>
+        </div>
+
+        <div id="p5-container"></div>
+
+        <div class="info">
+            <div><span class="status">Status:</span> <span id="status">Ready to load video</span></div>
+            <div>Uses MediaPipe Pose Detection to track shoulder positions</div>
+            <div>Midline is calculated between left and right shoulders</div>
+            <div>Overlay image aligns to the calculated midline</div>
+        </div>
+    </div>
 
     <script>
-        document.getElementById('load-button').addEventListener('click', function() {
-            const urlInput = document.getElementById('url-input').value;
-            const fileInput = document.getElementById('file-input').files[0];
-            const imageResult = document.getElementById('image-result');
-            imageResult.innerHTML = '';
+        let sketchInstance = null;
+        let videoElement = null;
+        let overlayImage = null;
+        let detector = null;
+        let poses = [];
+
+        // Load video file
+        function loadVideo() {
+            const fileInput = document.getElementById('video-input');
+            if (fileInput.files.length > 0) {
+                const file = fileInput.files[0];
+                const url = URL.createObjectURL(file);
+                
+                if (videoElement) {
+                    videoElement.remove();
+                }
+                videoElement = createVideo(url);
+                videoElement.elt.style.display = 'none';
+                
+                updateStatus('Video loaded: ' + file.name);
+            }
+        }
+
+        // Load overlay image
+        function loadOverlayImage() {
+            const urlInput = document.getElementById('image-url').value;
+            const fileInput = document.getElementById('image-input');
 
             if (urlInput) {
-                const img = document.createElement('img');
-                img.src = urlInput;
-                imageResult.appendChild(img);
-            } else if (fileInput) {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    const img = document.createElement('img');
-                    img.src = e.target.result;
-                    imageResult.appendChild(img);
-                };
-                reader.readAsDataURL(fileInput);
+                overlayImage = createImage();
+                overlayImage.load(urlInput);
+                updateStatus('Loading image from URL...');
+            } else if (fileInput.files.length > 0) {
+                const file = fileInput.files[0];
+                const url = URL.createObjectURL(file);
+                overlayImage = createImage();
+                overlayImage.load(url);
+                updateStatus('Image loaded from file');
             } else {
-                alert('Please provide a URL or select a file.');
+                updateStatus('No image selected');
             }
+        }
+
+        // Initialize pose detector
+        async function initPoseDetector() {
+            try {
+                const detectorConfig = {
+                    runtime: 'mediapipe',
+                    solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/pose',
+                };
+                detector = await poseDetection.createDetector(
+                    poseDetection.SupportedModels.MoveNet,
+                    detectorConfig
+                );
+                updateStatus('Pose detector initialized');
+            } catch (error) {
+                console.error('Error initializing detector:', error);
+                updateStatus('Error initializing pose detector');
+            }
+        }
+
+        // Start pose tracking
+        async function startPoseTracking() {
+            if (!videoElement) {
+                updateStatus('Please load a video first');
+                return;
+            }
+
+            loadOverlayImage();
+            await initPoseDetector();
+
+            // Remove previous sketch if exists
+            if (sketchInstance) {
+                sketchInstance.remove();
+            }
+
+            // Create new p5 sketch
+            sketchInstance = new p5((p) => {
+                let canvas;
+
+                p.setup = function() {
+                    const container = document.getElementById('p5-container');
+                    const width = Math.min(900, container.clientWidth - 10);
+                    const height = (width * 3) / 4;
+                    
+                    canvas = p.createCanvas(width, height);
+                    canvas.parent('p5-container');
+                    
+                    videoElement.play();
+                    updateStatus('Tracking started - Position yourself in the video');
+                };
+
+                p.draw = function() {
+                    if (!videoElement || videoElement.elt.paused) {
+                        p.background(0);
+                        p.fill(255);
+                        p.textSize(16);
+                        p.text('Video paused or not loaded', 20, 20);
+                        return;
+                    }
+
+                    // Draw video
+                    p.image(videoElement, 0, 0, p.width, p.height);
+
+                    // Detect poses
+                    if (detector && videoElement.elt.readyState === videoElement.elt.HAVE_ENOUGH_DATA) {
+                        detectPose(p);
+                    }
+
+                    // Draw overlay
+                    if (overlayImage && overlayImage.width > 0) {
+                        drawOverlay(p);
+                    }
+                };
+
+                async function detectPose(p) {
+                    try {
+                        poses = await detector.estimatePoses(videoElement.elt, {
+                            maxPoses: 1,
+                            flipHorizontal: true,
+                        });
+
+                        // Draw skeleton and keypoints
+                        if (poses.length > 0) {
+                            drawPose(p, poses[0]);
+                        }
+                    } catch (error) {
+                        console.error('Pose detection error:', error);
+                    }
+                }
+
+                function drawPose(p, pose) {
+                    const keypoints = pose.keypoints;
+                    const confidence_threshold = 0.5;
+
+                    // Draw keypoints
+                    p.fill(0, 255, 0);
+                    p.noStroke();
+                    keypoints.forEach((keypoint) => {
+                        if (keypoint.score > confidence_threshold) {
+                            const x = (keypoint.x / videoElement.elt.videoWidth) * p.width;
+                            const y = (keypoint.y / videoElement.elt.videoHeight) * p.height;
+                            p.ellipse(x, y, 8);
+                        }
+                    });
+
+                    // Draw skeleton
+                    const adjacentKeyPoints = poseDetection.util.getAdjacentPairs(
+                        poseDetection.SupportedModels.MoveNet
+                    );
+                    p.stroke(0, 255, 0);
+                    p.strokeWeight(2);
+
+                    adjacentKeyPoints.forEach(([i, j]) => {
+                        const kp1 = keypoints[i];
+                        const kp2 = keypoints[j];
+                        if (kp1.score > confidence_threshold && kp2.score > confidence_threshold) {
+                            const x1 = (kp1.x / videoElement.elt.videoWidth) * p.width;
+                            const y1 = (kp1.y / videoElement.elt.videoHeight) * p.height;
+                            const x2 = (kp2.x / videoElement.elt.videoWidth) * p.width;
+                            const y2 = (kp2.y / videoElement.elt.videoHeight) * p.height;
+                            p.line(x1, y1, x2, y2);
+                        }
+                    });
+                }
+
+                function drawOverlay(p) {
+                    if (poses.length === 0) return;
+
+                    const keypoints = poses[0].keypoints;
+                    const confidence_threshold = 0.5;
+
+                    // Find left and right shoulders (indices 5 and 6)
+                    const leftShoulder = keypoints[5]; // left shoulder
+                    const rightShoulder = keypoints[6]; // right shoulder
+
+                    if (
+                        leftShoulder.score > confidence_threshold &&
+                        rightShoulder.score > confidence_threshold
+                    ) {
+                        // Convert to canvas coordinates
+                        const leftX = (leftShoulder.x / videoElement.elt.videoWidth) * p.width;
+                        const rightX = (rightShoulder.x / videoElement.elt.videoWidth) * p.width;
+                        const shoulderY = (leftShoulder.y / videoElement.elt.videoHeight) * p.height;
+
+                        // Calculate midline
+                        const midlineX = (leftX + rightX) / 2;
+                        const shoulderDistance = rightX - leftX;
+
+                        // Get sliders
+                        const opacity = parseFloat(document.getElementById('opacity-slider').value);
+                        const scale = parseFloat(document.getElementById('scale-slider').value);
+
+                        // Update slider displays
+                        document.getElementById('opacity-value').textContent = opacity.toFixed(1);
+                        document.getElementById('scale-value').textContent = scale.toFixed(1);
+
+                        // Draw overlay image centered on midline
+                        p.push();
+                        p.globalAlpha(opacity);
+                        p.imageMode(p.CENTER);
+                        
+                        const imageWidth = shoulderDistance * 1.5 * scale;
+                        const imageHeight = (overlayImage.height / overlayImage.width) * imageWidth;
+
+                        p.image(overlayImage, midlineX, shoulderY, imageWidth, imageHeight);
+                        
+                        p.pop();
+
+                        // Draw midline for visualization (red line)
+                        p.stroke(255, 0, 0);
+                        p.strokeWeight(2);
+                        p.line(midlineX, shoulderY - 50, midlineX, shoulderY + 100);
+
+                        updateStatus(
+                            `Tracking active | Shoulder distance: ${shoulderDistance.toFixed(0)}px | Midline: ${midlineX.toFixed(0)}px`
+                        );
+                    }
+                }
+
+                p.windowResized = function() {
+                    if (sketchInstance) {
+                        const container = document.getElementById('p5-container');
+                        if (container && container.clientWidth > 0) {
+                            const width = Math.min(900, container.clientWidth - 10);
+                            const height = (width * 3) / 4;
+                            p.resizeCanvas(width, height);
+                        }
+                    }
+                };
+            });
+        }
+
+        function updateStatus(message) {
+            document.getElementById('status').textContent = message;
+        }
+
+        // Initialize on load
+        window.addEventListener('load', function() {
+            updateStatus('Ready - Load a video and image to begin');
         });
     </script>
 </body>
