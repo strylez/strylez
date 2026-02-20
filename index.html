@@ -3,10 +3,59 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Welcome</title>
+    <title>Overlay Blouse on Video</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
 </head>
 <body>
-    <h1>Welcome to Our Website!</h1>
-    <p>We are glad to have you here. Enjoy your stay!</p>
+    <input type="file" id="videoInput" accept="video/*">
+    <input type="file" id="blouseInput" accept="image/*">
+    <div id="canvasContainer"></div>
+    <script>
+        let video;
+        let blouseImage;
+
+        function setup() {
+            noCanvas();
+            const videoInput = document.getElementById('videoInput');
+            videoInput.addEventListener('change', handleVideoUpload);
+
+            const blouseInput = document.getElementById('blouseInput');
+            blouseInput.addEventListener('change', handleBlouseUpload);
+        }
+
+        function handleVideoUpload(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const url = URL.createObjectURL(file);
+                video = createVideo(url);
+                video.size(640, 480);
+                video.hide();
+                createCanvas(640, 480);
+                video.loop();
+                videoContainer = document.getElementById('canvasContainer');
+                videoContainer.innerHTML = '';
+                videoContainer.appendChild(video.elt);
+            }
+        }
+
+        function handleBlouseUpload(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const url = URL.createObjectURL(file);
+                blouseImage = loadImage(url, () => {
+                    image(blouseImage, 50, 50, blouseImage.width / 2, blouseImage.height / 2);
+                });
+            }
+        }
+
+        function draw() {
+            if (video) {
+                image(video, 0, 0);
+                if (blouseImage) {
+                    image(blouseImage, 50, 50, blouseImage.width / 2, blouseImage.height / 2);
+                }
+            }
+        }
+    </script>
 </body>
 </html>
