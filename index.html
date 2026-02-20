@@ -3,59 +3,44 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Overlay Blouse on Video</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <title>Image Loader</title>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        .image-result { margin-top: 20px; }
+        img { max-width: 100%; height: auto; }
+    </style>
 </head>
 <body>
-    <input type="file" id="videoInput" accept="video/*">
-    <input type="file" id="blouseInput" accept="image/*">
-    <div id="canvasContainer"></div>
+    <h1>Image Loader</h1>
+    <input type="text" id="url-input" placeholder="Enter image URL" />
+    <input type="file" id="file-input" accept="image/*" />
+    <button id="load-button">Load Image</button>
+
+    <div class="image-result" id="image-result"></div>
+
     <script>
-        let video;
-        let blouseImage;
+        document.getElementById('load-button').addEventListener('click', function() {
+            const urlInput = document.getElementById('url-input').value;
+            const fileInput = document.getElementById('file-input').files[0];
+            const imageResult = document.getElementById('image-result');
+            imageResult.innerHTML = '';
 
-        function setup() {
-            noCanvas();
-            const videoInput = document.getElementById('videoInput');
-            videoInput.addEventListener('change', handleVideoUpload);
-
-            const blouseInput = document.getElementById('blouseInput');
-            blouseInput.addEventListener('change', handleBlouseUpload);
-        }
-
-        function handleVideoUpload(event) {
-            const file = event.target.files[0];
-            if (file) {
-                const url = URL.createObjectURL(file);
-                video = createVideo(url);
-                video.size(640, 480);
-                video.hide();
-                createCanvas(640, 480);
-                video.loop();
-                videoContainer = document.getElementById('canvasContainer');
-                videoContainer.innerHTML = '';
-                videoContainer.appendChild(video.elt);
+            if (urlInput) {
+                const img = document.createElement('img');
+                img.src = urlInput;
+                imageResult.appendChild(img);
+            } else if (fileInput) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const img = document.createElement('img');
+                    img.src = e.target.result;
+                    imageResult.appendChild(img);
+                };
+                reader.readAsDataURL(fileInput);
+            } else {
+                alert('Please provide a URL or select a file.');
             }
-        }
-
-        function handleBlouseUpload(event) {
-            const file = event.target.files[0];
-            if (file) {
-                const url = URL.createObjectURL(file);
-                blouseImage = loadImage(url, () => {
-                    image(blouseImage, 50, 50, blouseImage.width / 2, blouseImage.height / 2);
-                });
-            }
-        }
-
-        function draw() {
-            if (video) {
-                image(video, 0, 0);
-                if (blouseImage) {
-                    image(blouseImage, 50, 50, blouseImage.width / 2, blouseImage.height / 2);
-                }
-            }
-        }
+        });
     </script>
 </body>
 </html>
