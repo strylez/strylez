@@ -1,85 +1,31 @@
-<!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pose Tracking Overlay</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-models@latest"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@latest"></script>
+    <title>Overlay Image Example</title>
     <style>
-        video {
-            position: absolute;
-            left: 0;
-            top: 0;
-            z-index: 1;
-        }
-        canvas {
-            position: absolute;
-            left: 0;
-            top: 0;
-            z-index: 2;
-            pointer-events: none;
+        body {
+            background-color: lightblue;
         }
         .overlay {
+            position: relative;
+        }
+        .overlay img {
+            width: 100%;
+            height: auto;
+        }
+        .overlay .overlay-image {
             position: absolute;
-            transform: translate(-50%, -50%);
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0.5;
         }
     </style>
 </head>
 <body>
-    <video id="video" width="640" height="480" autoplay></video>
-    <canvas id="canvas" width="640" height="480"></canvas>
-    <img class="overlay" id="overlay-image" src="https://www.strylez.com/cdn/shop/files/IMAGE-EDIT_7e05779f-e9b2-48c9-adf9-c85b5092758f.png?v=1759729955" style="display:none;" />
-
-    <script>
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
-        const overlayImage = document.getElementById('overlay-image');
-
-        async function setupCamera() {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-            video.srcObject = stream;
-            return new Promise((resolve) => {
-                video.onloadedmetadata = () => {
-                    resolve(video);
-                };
-            });
-        }
-
-        async function loadPoseModel() {
-            return await pose.Pose.create();
-        }
-
-        async function detectPose(pose) {
-            const poses = await pose.estimatePoses(video);
-            if (poses.length > 0) {
-                const shoulder = poses[0].keypoints[11]; // Right shoulder
-                const shoulder2 = poses[0].keypoints[12]; // Left shoulder
-
-                drawOverlay(shoulder, shoulder2);
-            }
-            requestAnimationFrame(() => detectPose(pose));
-        }
-
-        function drawOverlay(shoulder, shoulder2) {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            const midlineX = (shoulder.position.x + shoulder2.position.x) / 2;
-            const midlineY = (shoulder.position.y + shoulder2.position.y) / 2;
-            overlayImage.style.left = midlineX + 'px';
-            overlayImage.style.top = midlineY + 'px';
-            overlayImage.style.display = 'block';
-            ctx.drawImage(overlayImage, midlineX - overlayImage.width / 2, midlineY - overlayImage.height / 2);
-        }
-
-        async function main() {
-            await setupCamera();
-            const pose = await loadPoseModel();
-            detectPose(pose);
-        }
-
-        main();
-    </script>
+    <div class="overlay">
+        <img src="default.jpg" alt="Background Image">
+        <img src="test.png" class="overlay-image" alt="Overlay Image">
+    </div>
 </body>
 </html>
