@@ -1,31 +1,644 @@
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
-    <title>Overlay Image Example</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Virtual Try-On - Image Overlay on Webcam</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
-            background-color: lightblue;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
         }
-        .overlay {
-            position: relative;
-        }
-        .overlay img {
+
+        .container {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 30px;
+            max-width: 700px;
             width: 100%;
-            height: auto;
         }
-        .overlay .overlay-image {
-            position: absolute;
-            top: 0;
+
+        .center {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .title {
+            font-size: 28px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 14px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .fa-camera {
+            font-size: 48px;
+            color: #667eea;
+            margin-bottom: 20px;
+        }
+
+        .button {
+            padding: 12px 30px;
+            font-size: 16px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            min-width: 200px;
+        }
+
+        .button--secondary {
+            background-color: #667eea;
+            color: white;
+        }
+
+        .button--secondary:hover {
+            background-color: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
+        }
+
+        .button--secondary:active {
+            transform: translateY(0);
+        }
+
+        .button.button--danger {
+            background-color: #ef4444;
+            color: white;
+        }
+
+        .button.button--danger:hover {
+            background-color: #dc2626;
+        }
+
+        .button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
             left: 0;
+            top: 0;
             width: 100%;
             height: 100%;
-            opacity: 0.5;
+            background-color: rgba(0, 0, 0, 0.8);
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: auto;
+            padding: 30px;
+            border-radius: 15px;
+            width: 90%;
+            max-width: 750px;
+            max-height: 90vh;
+            overflow-y: auto;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        }
+
+        .close {
+            color: #999;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: color 0.3s;
+        }
+
+        .close:hover,
+        .close:focus {
+            color: #333;
+        }
+
+        .modal-controls {
+            display: flex;
+            gap: 15px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        #videoFrame {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 20px 0;
+            min-height: 300px;
+            background: #f5f5f5;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        #videoFrame canvas {
+            max-width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .countdown {
+            font-size: 48px;
+            font-weight: bold;
+            color: #667eea;
+            text-align: center;
+            margin: 20px 0;
+            min-height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .info-section {
+            background: #f0f4ff;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #555;
+            border-left: 4px solid #667eea;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        input[type="file"] {
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin: 15px 0;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        @media screen and (max-width: 600px) {
+            .modal-content {
+                width: 95%;
+                padding: 20px;
+            }
+
+            .button {
+                min-width: 150px;
+                font-size: 14px;
+                padding: 10px 20px;
+            }
+
+            .title {
+                font-size: 24px;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="overlay">
-        <img src="default.jpg" alt="Background Image">
-        <img src="test.png" class="overlay-image" alt="Overlay Image">
+    <div class="container">
+        <div class="center">
+            <span class="fa fa-camera"></span>
+            <div class="title">Virtual Try-On</div>
+            <div class="subtitle">Overlay your clothes on your webcam feed</div>
+            <button id="myBtn" class="button button--secondary">
+                Start Virtual Try-On
+            </button>
+        </div>
     </div>
+
+    <!-- The Modal -->
+    <div id="myModal" class="modal">
+        <!-- Modal content -->
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>Virtual Try-On Experience</h2>
+
+            <div class="info-section">
+                <strong>📸 How it works:</strong> Upload or use a sample cloth image, turn on your webcam, and watch it overlay on your body in real-time!
+            </div>
+
+            <!-- Image Upload -->
+            <div class="input-group">
+                <input type="file" id="imageUpload" accept="image/*" />
+                <button id="useSampleImage" class="button button--secondary">
+                    Use Sample Image
+                </button>
+            </div>
+
+            <!-- Controls -->
+            <div class="modal-controls">
+                <button id="selectedDress" class="button button--secondary">
+                    Turn on Webcam
+                </button>
+                <button id="takeScreenshot" class="button button--secondary hidden">
+                    Capture Photo
+                </button>
+                <button id="stopBtn" class="button button--danger hidden">
+                    Turn off Webcam
+                </button>
+            </div>
+
+            <!-- Video Display Area -->
+            <div id="videoFrame"></div>
+
+            <!-- Countdown Timer -->
+            <div id="countdown" class="countdown"></div>
+
+            <!-- Hidden input for dress type -->
+            <button id="selectedDressType" value="tops" style="display:none;">Dress Type</button>
+        </div>
+    </div>
+
+    <!-- p5.js and ml5.js Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/addons/p5.sound.min.js"></script>
+    <script src="https://unpkg.com/ml5@0.12.0/dist/ml5.min.js"></script>
+
+    <script>
+        // ============================================
+        // Global Variables
+        // ============================================
+        let video;
+        let poseNet;
+        let canvas;
+        let img;
+        let started = false;
+
+        // Pose tracking variables
+        let noseX = 0, noseY = 0;
+        let eyelX = 0, eyelY = 0;
+        let lerpLeftShoulderX = 0, lerpLeftShoulderY = 0;
+        let lerpRightShoulderX = 0, lerpRightShoulderY = 0;
+        let lerpRightHipX = 0, lerpRightHipY = 0;
+        let lerpLeftHipX = 0, lerpLeftHipY = 0;
+
+        // Cloth configuration
+        const upperBodyKeywords = ["top", "shirt", "blouse", "dress"];
+        const lowerBodyKeywords = ["skirt", "pants", "shorts"];
+        let dressType = "tops";
+        let hasColar = false;
+        let try_on_flag = 1;
+
+        // Sample image URL (replace with your own)
+        const SAMPLE_IMAGE_URL = 'https://via.placeholder.com/300x400/667eea/ffffff?text=Sample+Cloth';
+
+        // ============================================
+        // DOM Elements
+        // ============================================
+        const modal = document.getElementById("myModal");
+        const btn = document.getElementById("myBtn");
+        const closeBtn = document.getElementsByClassName("close")[0];
+        const imageUpload = document.getElementById("imageUpload");
+        const useSampleImageBtn = document.getElementById("useSampleImage");
+        const startBtn = document.getElementById("selectedDress");
+        const screenshotBtn = document.getElementById("takeScreenshot");
+        const stopBtn = document.getElementById("stopBtn");
+        const countdownEl = document.getElementById("countdown");
+
+        // ============================================
+        // Modal Control
+        // ============================================
+        btn.onclick = () => {
+            modal.style.display = "block";
+        };
+
+        closeBtn.onclick = () => {
+            modal.style.display = "none";
+            cleanup();
+        };
+
+        window.onclick = (event) => {
+            if (event.target === modal) {
+                modal.style.display = "none";
+                cleanup();
+            }
+        };
+
+        // ============================================
+        // Image Upload Handling
+        // ============================================
+        imageUpload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    loadImage(event.target.result, (loadedImage) => {
+                        const croppedImage = cropImageToContent(loadedImage);
+                        img = croppedImage;
+                        enableControls();
+                    });
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        useSampleImageBtn.onclick = () => {
+            loadImage(SAMPLE_IMAGE_URL, (loadedImage) => {
+                const croppedImage = cropImageToContent(loadedImage);
+                img = croppedImage;
+                enableControls();
+            });
+        };
+
+        // ============================================
+        // Pose Detection
+        // ============================================
+        function gotPoses(poses) {
+            if (poses.length > 0) {
+                const pose = poses[0].pose;
+
+                let nX = pose.keypoints[0].position.x;
+                let nY = pose.keypoints[0].position.y;
+                let eX = pose.keypoints[1].position.x;
+                let eY = pose.keypoints[1].position.y;
+
+                let leftShoulderX = pose.keypoints[6].position.x;
+                let leftShoulderY = pose.keypoints[6].position.y;
+                let rightShoulderX = pose.keypoints[5].position.x;
+                let rightShoulderY = pose.keypoints[5].position.y;
+
+                let rightHipX = pose.keypoints[11].position.x;
+                let rightHipY = pose.keypoints[11].position.y;
+                let leftHipX = pose.keypoints[12].position.x;
+                let leftHipY = pose.keypoints[12].position.y;
+
+                // Smooth interpolation
+                noseX = lerp(noseX, nX, 0.5);
+                noseY = lerp(noseY, nY, 0.5);
+                eyelX = lerp(eyelX, eX, 0.5);
+                eyelY = lerp(eyelY, eY, 0.5);
+
+                lerpLeftShoulderX = lerp(lerpLeftShoulderX, leftShoulderX, 0.1);
+                lerpLeftShoulderY = lerp(lerpLeftShoulderY, leftShoulderY, 0.1);
+                lerpRightShoulderX = lerp(lerpRightShoulderX, rightShoulderX, 0.1);
+                lerpRightShoulderY = lerp(lerpRightShoulderY, rightShoulderY, 0.1);
+
+                lerpLeftHipX = lerp(lerpLeftHipX, leftHipX, 0.1);
+                lerpLeftHipY = lerp(lerpLeftHipY, leftHipY, 0.1);
+                lerpRightHipX = lerp(lerpRightHipX, rightHipX, 0.1);
+                lerpRightHipY = lerp(lerpRightHipY, rightHipY, 0.1);
+            }
+        }
+
+        function modelReady() {
+            console.log("PoseNet model ready");
+        }
+
+        // ============================================
+        // Image Cropping
+        // ============================================
+        function cropImageToContent(inputImg) {
+            const w = inputImg.width;
+            const h = inputImg.height;
+            const tempCanvas = createGraphics(w, h);
+            tempCanvas.pixelDensity(1);
+            tempCanvas.image(inputImg, 0, 0);
+            tempCanvas.loadPixels();
+
+            const pixels = tempCanvas.pixels;
+            const bgColor = [255, 255, 255];
+            const tolerance = 25;
+
+            let minX = w, minY = h, maxX = -1, maxY = -1;
+
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    const index = (y * w + x) * 4;
+                    const r = pixels[index];
+                    const g = pixels[index + 1];
+                    const b = pixels[index + 2];
+                    const a = pixels[index + 3];
+
+                    const isBackground =
+                        Math.abs(r - bgColor[0]) < tolerance &&
+                        Math.abs(g - bgColor[1]) < tolerance &&
+                        Math.abs(b - bgColor[2]) < tolerance;
+
+                    if (a > 0 && !isBackground) {
+                        if (x < minX) minX = x;
+                        if (y < minY) minY = y;
+                        if (x > maxX) maxX = x;
+                        if (y > maxY) maxY = y;
+                    }
+                }
+            }
+
+            const croppedWidth = maxX - minX + 1;
+            const croppedHeight = maxY - minY + 1;
+
+            const result = createGraphics(croppedWidth, croppedHeight);
+            result.copy(tempCanvas, minX, minY, croppedWidth, croppedHeight, 0, 0, croppedWidth, croppedHeight);
+
+            return result.get();
+        }
+
+        // ============================================
+        // Position and Size Calculations
+        // ============================================
+        function getImgHeight(dressType) {
+            if (dressType === "skirts" || dressType === "pants") {
+                return 100;
+            } else if (dressType === "dresses") {
+                return 250;
+            }
+            return 300; // default for tops
+        }
+
+        function getYPosition(dressType) {
+            if (upperBodyKeywords.some(k => dressType.toLowerCase().includes(k))) {
+                const y_shift = (lerpLeftShoulderY - noseY) / (hasColar ? 1.5 : 3);
+                return lerpLeftShoulderY - y_shift;
+            } else if (lowerBodyKeywords.some(k => dressType.toLowerCase().includes(k))) {
+                const y_shift = (lerpLeftHipY - lerpLeftShoulderY) / 2;
+                return lerpLeftHipY - y_shift;
+            }
+            return 0;
+        }
+
+        // ============================================
+        // p5.js Draw Function
+        // ============================================
+        function draw() {
+            if (!started || !img || !video) return;
+
+            background(255);
+
+            // Mirror the video
+            translate(video.width, 0);
+            scale(-1, 1);
+            image(video, 0, 0);
+
+            // Calculate body positioning
+            const body_neck_mid_position_x = (((lerpRightShoulderX - lerpLeftShoulderX) - 1) / 2) + lerpLeftShoulderX;
+            const y_position = getYPosition(dressType);
+            const img_height = getImgHeight(dressType);
+            const cloth_dist_to_mid_from_left_edge_x = (img_height - 1) / 2;
+            const overlay_left_edge_x = body_neck_mid_position_x - cloth_dist_to_mid_from_left_edge_x;
+
+            img.resize(img_height, 0);
+
+            if (try_on_flag === 1) {
+                // Wave animation settings
+                const waveAmplitude = 15;
+                const waveFrequency = 0.05;
+                const waveSpeed = 0.1;
+                const edgePercent = 0.2;
+
+                const t = frameCount * waveSpeed;
+                const leftEdgeLimit = img.width * edgePercent;
+                const rightEdgeLimit = img.width * (1 - edgePercent);
+
+                // Draw with edge-based waving
+                for (let x = 0; x < img.width; x++) {
+                    let offset = 0;
+
+                    if (x < leftEdgeLimit) {
+                        const strength = 1 - (x / leftEdgeLimit);
+                        offset = sin((x * waveFrequency) + t) * waveAmplitude * strength;
+                    } else if (x > rightEdgeLimit) {
+                        const distFromRight = img.width - x;
+                        const strength = 1 - (distFromRight / leftEdgeLimit);
+                        offset = sin((x * waveFrequency) + t) * waveAmplitude * strength;
+                    }
+
+                    copy(
+                        img,
+                        x, 0, 1, img.height,
+                        overlay_left_edge_x + x, y_position + offset, 1, img.height
+                    );
+                }
+            }
+        }
+
+        // ============================================
+        // Webcam Control
+        // ============================================
+        function startWebcam() {
+            canvas = createCanvas(Math.min(window.innerWidth * 0.9, 600), 600);
+            canvas.parent('videoFrame');
+            canvas.style.display = "block";
+
+            video = createCapture(VIDEO);
+            video.style.display = "block";
+            video.style.margin = "auto";
+            video.size(width, height);
+
+            poseNet = ml5.poseNet(video, modelReady);
+            poseNet.on('pose', gotPoses);
+
+            started = true;
+            loop();
+
+            // Update button visibility
+            startBtn.classList.add('hidden');
+            screenshotBtn.classList.remove('hidden');
+            stopBtn.classList.remove('hidden');
+        }
+
+        function stopWebcam() {
+            if (video) {
+                video.remove();
+            }
+            if (poseNet) {
+                poseNet.remove();
+            }
+            noLoop();
+            started = false;
+
+            // Update button visibility
+            startBtn.classList.remove('hidden');
+            screenshotBtn.classList.add('hidden');
+            stopBtn.classList.add('hidden');
+
+            // Clear video frame
+            const videoFrame = document.getElementById('videoFrame');
+            videoFrame.innerHTML = '';
+        }
+
+        function cleanup() {
+            if (started) {
+                stopWebcam();
+            }
+            countdownEl.textContent = '';
+        }
+
+        // ============================================
+        // Screenshot Capture
+        // ============================================
+        function takeScreenshot() {
+            let counter = 3;
+            countdownEl.textContent = counter;
+
+            const timer = setInterval(() => {
+                counter--;
+                countdownEl.textContent = counter > 0 ? counter : "";
+
+                if (counter <= 0) {
+                    clearInterval(timer);
+
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                    const filename = `virtual-tryon_${timestamp}`;
+                    saveCanvas(canvas, filename, 'png');
+
+                    alert("✅ Your photo has been saved to your device!");
+                    countdownEl.textContent = '';
+                }
+            }, 1000);
+        }
+
+        function enableControls() {
+            startBtn.disabled = false;
+            startBtn.addEventListener('click', startWebcam, { once: true });
+        }
+
+        // ============================================
+        // Event Listeners
+        // ============================================
+        screenshotBtn.addEventListener('click', takeScreenshot);
+        stopBtn.addEventListener('click', stopWebcam);
+
+        // Initialize p5.js (required for p5 functions to work outside setup/draw)
+        console.log("Virtual Try-On initialized and ready!");
+    </script>
 </body>
 </html>
