@@ -319,6 +319,14 @@
         let hasColar = false;
         let try_on_flag = 1;
 
+        // Body part IDs for upper body clothing in BodyPix segmentation
+        // 2-5: upper arms (front/back), 6-9: lower arms (front/back), 12-13: torso (front/back)
+        const UPPER_BODY_CLOTH_PARTS = new Set([2, 3, 4, 5, 6, 7, 8, 9, 12, 13]);
+        // Minimum fraction of torso pixels required to classify image as upper body cloth
+        const UPPER_BODY_TORSO_THRESHOLD = 0.05;
+        let bodyPixModel = null;
+        let bodyPixReady = false;
+
         // Sample image URL (replace with your own)
         const SAMPLE_IMAGE_URL = 'https://via.placeholder.com/300x400/667eea/ffffff?text=Sample+Cloth';
 
@@ -340,6 +348,7 @@
         // ============================================
         btn.onclick = () => {
             modal.style.display = "block";
+            initBodyPix();
         };
 
         closeBtn.onclick = () => {
@@ -363,9 +372,10 @@
                 const reader = new FileReader();
                 reader.onload = (event) => {
                     loadImage(event.target.result, (loadedImage) => {
-                        const croppedImage = cropImageToContent(loadedImage);
-                        img = croppedImage;
-                        enableControls();
+                        preprocessClothImage(loadedImage, (processedImage) => {
+                            img = processedImage;
+                            enableControls();
+                        });
                     });
                 };
                 reader.readAsDataURL(file);
@@ -374,9 +384,10 @@
 
         useSampleImageBtn.onclick = () => {
             loadImage(SAMPLE_IMAGE_URL, (loadedImage) => {
-                const croppedImage = cropImageToContent(loadedImage);
-                img = croppedImage;
-                enableControls();
+                preprocessClothImage(loadedImage, (processedImage) => {
+                    img = processedImage;
+                    enableControls();
+                });
             });
         };
 
@@ -470,6 +481,100 @@
             result.copy(tempCanvas, minX, minY, croppedWidth, croppedHeight, 0, 0, croppedWidth, croppedHeight);
 
             return result.get();
+        }
+
+        // ============================================
+        // Cloth Preprocessing - BodyPix Background Removal
+        // ============================================
+        function initBodyPix() {
+            if (bodyPixModel) return;
+            bodyPixModel = ml5.bodyPix({
+                multiplier: 0.75,
+                stride: 16
+            }, () => {
+                bodyPixReady = true;
+                console.log("BodyPix model ready for cloth preprocessing");
+            });
+        }
+
+        function isUpperBodyClothImage(partData, totalPixels) {
+            let torsoPixels = 0;
+            for (let i = 0; i < partData.length; i++) {
+                const p = partData[i];
+                if (p === 12 || p === 13) torsoPixels++;
+            }
+            return (torsoPixels / totalPixels) > UPPER_BODY_TORSO_THRESHOLD;
+        }
+
+        function cropToTransparent(inputImg) {
+            const w = inputImg.width;
+            const h = inputImg.height;
+            const tempCanvas = createGraphics(w, h);
+            tempCanvas.pixelDensity(1);
+            tempCanvas.image(inputImg, 0, 0);
+            tempCanvas.loadPixels();
+
+            const pixels = tempCanvas.pixels;
+            let minX = w, minY = h, maxX = -1, maxY = -1;
+
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    const index = (y * w + x) * 4;
+                    if (pixels[index + 3] > 0) {
+                        if (x < minX) minX = x;
+                        if (y < minY) minY = y;
+                        if (x > maxX) maxX = x;
+                        if (y > maxY) maxY = y;
+                    }
+                }
+            }
+
+            if (maxX === -1) return inputImg;
+
+            const croppedWidth = maxX - minX + 1;
+            const croppedHeight = maxY - minY + 1;
+            const result = createGraphics(croppedWidth, croppedHeight);
+            result.copy(tempCanvas, minX, minY, croppedWidth, croppedHeight, 0, 0, croppedWidth, croppedHeight);
+            return result.get();
+        }
+
+        function preprocessClothImage(inputImg, callback) {
+            if (!bodyPixReady) {
+                callback(cropImageToContent(inputImg));
+                return;
+            }
+
+            bodyPixModel.segmentWithParts(inputImg, (error, result) => {
+                if (error || !result || !result.data) {
+                    console.warn("BodyPix segmentation failed, using basic crop:", error);
+                    callback(cropImageToContent(inputImg));
+                    return;
+                }
+
+                const w = inputImg.width;
+                const h = inputImg.height;
+                const partData = result.data;
+
+                if (!isUpperBodyClothImage(partData, w * h)) {
+                    callback(cropImageToContent(inputImg));
+                    return;
+                }
+
+                const tempCanvas = createGraphics(w, h);
+                tempCanvas.pixelDensity(1);
+                tempCanvas.image(inputImg, 0, 0);
+                tempCanvas.loadPixels();
+
+                for (let i = 0; i < partData.length; i++) {
+                    if (!UPPER_BODY_CLOTH_PARTS.has(partData[i])) {
+                        const pixelIndex = i * 4;
+                        tempCanvas.pixels[pixelIndex + 3] = 0;
+                    }
+                }
+
+                tempCanvas.updatePixels();
+                callback(cropToTransparent(tempCanvas.get()));
+            });
         }
 
         // ============================================
