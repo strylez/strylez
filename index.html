@@ -270,11 +270,15 @@
                 <button id="selectedDress" class="button button--secondary">
                     Turn on Webcam
                 </button>
+                <button id="loadVideoBtn" class="button button--secondary" disabled>
+                    Load Video File
+                </button>
+                <input type="file" id="videoFileInput" accept="video/*" style="display:none;" />
                 <button id="takeScreenshot" class="button button--secondary hidden">
                     Capture Photo
                 </button>
                 <button id="stopBtn" class="button button--danger hidden">
-                    Turn off Webcam
+                    Stop
                 </button>
             </div>
 
@@ -331,6 +335,8 @@
         const imageUpload = document.getElementById("imageUpload");
         const useSampleImageBtn = document.getElementById("useSampleImage");
         const startBtn = document.getElementById("selectedDress");
+        const loadVideoBtn = document.getElementById("loadVideoBtn");
+        const videoFileInput = document.getElementById("videoFileInput");
         const screenshotBtn = document.getElementById("takeScreenshot");
         const stopBtn = document.getElementById("stopBtn");
         const countdownEl = document.getElementById("countdown");
@@ -571,6 +577,31 @@
 
             // Update button visibility
             startBtn.classList.add('hidden');
+            loadVideoBtn.classList.add('hidden');
+            screenshotBtn.classList.remove('hidden');
+            stopBtn.classList.remove('hidden');
+        }
+
+        function startVideoFile(url) {
+            canvas = createCanvas(Math.min(window.innerWidth * 0.9, 600), 600);
+            canvas.parent('videoFrame');
+            canvas.style.display = "block";
+
+            video = createVideo([url]);
+            video.hide();
+            video.size(width, height);
+            video.loop();
+            video.volume(0);
+
+            poseNet = ml5.poseNet(video, modelReady);
+            poseNet.on('pose', gotPoses);
+
+            started = true;
+            loop();
+
+            // Update button visibility
+            startBtn.classList.add('hidden');
+            loadVideoBtn.classList.add('hidden');
             screenshotBtn.classList.remove('hidden');
             stopBtn.classList.remove('hidden');
         }
@@ -587,6 +618,7 @@
 
             // Update button visibility
             startBtn.classList.remove('hidden');
+            loadVideoBtn.classList.remove('hidden');
             screenshotBtn.classList.add('hidden');
             stopBtn.classList.add('hidden');
 
@@ -629,11 +661,23 @@
         function enableControls() {
             startBtn.disabled = false;
             startBtn.addEventListener('click', startWebcam, { once: true });
+            loadVideoBtn.disabled = false;
         }
 
         // ============================================
         // Event Listeners
         // ============================================
+        loadVideoBtn.addEventListener('click', () => videoFileInput.click());
+
+        videoFileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const objectURL = URL.createObjectURL(file);
+                startVideoFile(objectURL);
+                // Reset input so the same file can be re-selected later
+                videoFileInput.value = '';
+            }
+        });
         screenshotBtn.addEventListener('click', takeScreenshot);
         stopBtn.addEventListener('click', stopWebcam);
 
