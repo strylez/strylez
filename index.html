@@ -447,8 +447,25 @@
             tempCanvas.loadPixels();
 
             const pixels = tempCanvas.pixels;
-            const bgColor = [255, 255, 255];
-            const tolerance = 25;
+
+            // Detect background color by sampling the four corners
+            const cornerPositions = [
+                [0, 0], [w - 1, 0], [0, h - 1], [w - 1, h - 1]
+            ];
+            let totalR = 0, totalG = 0, totalB = 0, sampleCount = 0;
+            for (const [cx, cy] of cornerPositions) {
+                const idx = (cy * w + cx) * 4;
+                if (pixels[idx + 3] > 200) { // skip mostly-transparent corner pixels
+                    totalR += pixels[idx];
+                    totalG += pixels[idx + 1];
+                    totalB += pixels[idx + 2];
+                    sampleCount++;
+                }
+            }
+            const bgColor = sampleCount > 0
+                ? [Math.round(totalR / sampleCount), Math.round(totalG / sampleCount), Math.round(totalB / sampleCount)]
+                : [255, 255, 255];
+            const tolerance = 30;
 
             let minX = w, minY = h, maxX = -1, maxY = -1;
 
@@ -461,11 +478,15 @@
                     const a = pixels[index + 3];
 
                     const isBackground =
-                        Math.abs(r - bgColor[0]) < tolerance &&
+                        a < 10 || // treat near-fully-transparent pixels as background
+                        (Math.abs(r - bgColor[0]) < tolerance &&
                         Math.abs(g - bgColor[1]) < tolerance &&
-                        Math.abs(b - bgColor[2]) < tolerance;
+                        Math.abs(b - bgColor[2]) < tolerance);
 
-                    if (a > 0 && !isBackground) {
+                    if (isBackground) {
+                        // Make background pixels fully transparent
+                        pixels[index + 3] = 0;
+                    } else {
                         if (x < minX) minX = x;
                         if (y < minY) minY = y;
                         if (x > maxX) maxX = x;
@@ -475,6 +496,10 @@
                     }
                 }
             }
+
+            if (maxX === -1) return inputImg;
+
+            tempCanvas.updatePixels();
 
             tempCanvas.updatePixels();
 
