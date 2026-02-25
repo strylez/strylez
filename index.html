@@ -491,6 +491,8 @@
                         if (y < minY) minY = y;
                         if (x > maxX) maxX = x;
                         if (y > maxY) maxY = y;
+                    } else {
+                        pixels[index + 3] = 0;
                     }
                 }
             }
@@ -498,6 +500,10 @@
             if (maxX === -1) return inputImg;
 
             tempCanvas.updatePixels();
+
+            tempCanvas.updatePixels();
+
+            if (maxX === -1) return inputImg;
 
             const croppedWidth = maxX - minX + 1;
             const croppedHeight = maxY - minY + 1;
@@ -565,20 +571,21 @@
 
         function preprocessClothImage(inputImg, callback) {
             if (!bodyPixReady) {
+                console.log("BodyPix not ready, using basic background removal");
                 callback(cropImageToContent(inputImg));
                 return;
             }
 
             bodyPixModel.segmentWithParts(inputImg, (error, result) => {
-                if (error || !result || !result.data) {
-                    console.warn("BodyPix segmentation failed, using basic crop:", error);
+                const partData = result && (result.data || (result.raw && result.raw.part));
+                if (error || !partData) {
+                    console.warn("BodyPix segmentation failed, using basic background removal:", error);
                     callback(cropImageToContent(inputImg));
                     return;
                 }
 
                 const w = inputImg.width;
                 const h = inputImg.height;
-                const partData = result.data;
 
                 if (!isUpperBodyClothImage(partData, w * h)) {
                     callback(cropImageToContent(inputImg));
@@ -768,6 +775,10 @@
         stopBtn.addEventListener('click', stopWebcam);
 
         // Initialize p5.js (required for p5 functions to work outside setup/draw)
+        function setup() {
+            noCanvas();
+        }
+
         console.log("Virtual Try-On initialized and ready!");
     </script>
 </body>
