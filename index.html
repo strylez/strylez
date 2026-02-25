@@ -319,14 +319,6 @@
         let hasColar = false;
         let try_on_flag = 1;
 
-        // Body part IDs for upper body clothing in BodyPix segmentation
-        // 2-5: upper arms (front/back), 6-9: lower arms (front/back), 12-13: torso (front/back)
-        const UPPER_BODY_CLOTH_PARTS = new Set([2, 3, 4, 5, 6, 7, 8, 9, 12, 13]);
-        // Minimum fraction of torso pixels required to classify image as upper body cloth
-        const UPPER_BODY_TORSO_THRESHOLD = 0.05;
-        let bodyPixModel = null;
-        let bodyPixReady = false;
-
         // Sample image URL (replace with your own)
         const SAMPLE_IMAGE_URL = 'https://via.placeholder.com/300x400/667eea/ffffff?text=Sample+Cloth';
 
@@ -348,7 +340,6 @@
         // ============================================
         btn.onclick = () => {
             modal.style.display = "block";
-            initBodyPix();
         };
 
         closeBtn.onclick = () => {
@@ -372,10 +363,9 @@
                 const reader = new FileReader();
                 reader.onload = (event) => {
                     loadImage(event.target.result, (loadedImage) => {
-                        preprocessClothImage(loadedImage, (processedImage) => {
-                            img = processedImage;
-                            enableControls();
-                        });
+                        const croppedImage = cropImageToContent(loadedImage);
+                        img = croppedImage;
+                        enableControls();
                     });
                 };
                 reader.readAsDataURL(file);
@@ -384,10 +374,9 @@
 
         useSampleImageBtn.onclick = () => {
             loadImage(SAMPLE_IMAGE_URL, (loadedImage) => {
-                preprocessClothImage(loadedImage, (processedImage) => {
-                    img = processedImage;
-                    enableControls();
-                });
+                const croppedImage = cropImageToContent(loadedImage);
+                img = croppedImage;
+                enableControls();
             });
         };
 
@@ -447,25 +436,8 @@
             tempCanvas.loadPixels();
 
             const pixels = tempCanvas.pixels;
-
-            // Detect background color by sampling the four corners
-            const cornerPositions = [
-                [0, 0], [w - 1, 0], [0, h - 1], [w - 1, h - 1]
-            ];
-            let totalR = 0, totalG = 0, totalB = 0, sampleCount = 0;
-            for (const [cx, cy] of cornerPositions) {
-                const idx = (cy * w + cx) * 4;
-                if (pixels[idx + 3] > 200) { // skip mostly-transparent corner pixels
-                    totalR += pixels[idx];
-                    totalG += pixels[idx + 1];
-                    totalB += pixels[idx + 2];
-                    sampleCount++;
-                }
-            }
-            const bgColor = sampleCount > 0
-                ? [Math.round(totalR / sampleCount), Math.round(totalG / sampleCount), Math.round(totalB / sampleCount)]
-                : [255, 255, 255];
-            const tolerance = 30;
+            const bgColor = [255, 255, 255];
+            const tolerance = 25;
 
             let minX = w, minY = h, maxX = -1, maxY = -1;
 
@@ -478,80 +450,11 @@
                     const a = pixels[index + 3];
 
                     const isBackground =
-                        a < 10 || // treat near-fully-transparent pixels as background
-                        (Math.abs(r - bgColor[0]) < tolerance &&
+                        Math.abs(r - bgColor[0]) < tolerance &&
                         Math.abs(g - bgColor[1]) < tolerance &&
-                        Math.abs(b - bgColor[2]) < tolerance);
+                        Math.abs(b - bgColor[2]) < tolerance;
 
-                    if (isBackground) {
-                        // Make background pixels fully transparent
-                        pixels[index + 3] = 0;
-                    } else {
-                        if (x < minX) minX = x;
-                        if (y < minY) minY = y;
-                        if (x > maxX) maxX = x;
-                        if (y > maxY) maxY = y;
-                    } else {
-                        pixels[index + 3] = 0;
-                    }
-                }
-            }
-
-            if (maxX === -1) return inputImg;
-
-            tempCanvas.updatePixels();
-
-            tempCanvas.updatePixels();
-
-            if (maxX === -1) return inputImg;
-
-            const croppedWidth = maxX - minX + 1;
-            const croppedHeight = maxY - minY + 1;
-
-            const result = createGraphics(croppedWidth, croppedHeight);
-            result.copy(tempCanvas, minX, minY, croppedWidth, croppedHeight, 0, 0, croppedWidth, croppedHeight);
-
-            return result.get();
-        }
-
-        // ============================================
-        // Cloth Preprocessing - BodyPix Background Removal
-        // ============================================
-        function initBodyPix() {
-            if (bodyPixModel) return;
-            bodyPixModel = ml5.bodyPix({
-                multiplier: 0.75,
-                stride: 16
-            }, () => {
-                bodyPixReady = true;
-                console.log("BodyPix model ready for cloth preprocessing");
-            });
-        }
-
-        function isUpperBodyClothImage(partData, totalPixels) {
-            let torsoPixels = 0;
-            for (let i = 0; i < partData.length; i++) {
-                const p = partData[i];
-                if (p === 12 || p === 13) torsoPixels++;
-            }
-            return (torsoPixels / totalPixels) > UPPER_BODY_TORSO_THRESHOLD;
-        }
-
-        function cropToTransparent(inputImg) {
-            const w = inputImg.width;
-            const h = inputImg.height;
-            const tempCanvas = createGraphics(w, h);
-            tempCanvas.pixelDensity(1);
-            tempCanvas.image(inputImg, 0, 0);
-            tempCanvas.loadPixels();
-
-            const pixels = tempCanvas.pixels;
-            let minX = w, minY = h, maxX = -1, maxY = -1;
-
-            for (let y = 0; y < h; y++) {
-                for (let x = 0; x < w; x++) {
-                    const index = (y * w + x) * 4;
-                    if (pixels[index + 3] > 0) {
+                    if (a > 0 && !isBackground) {
                         if (x < minX) minX = x;
                         if (y < minY) minY = y;
                         if (x > maxX) maxX = x;
@@ -560,53 +463,13 @@
                 }
             }
 
-            if (maxX === -1) return inputImg;
-
             const croppedWidth = maxX - minX + 1;
             const croppedHeight = maxY - minY + 1;
+
             const result = createGraphics(croppedWidth, croppedHeight);
             result.copy(tempCanvas, minX, minY, croppedWidth, croppedHeight, 0, 0, croppedWidth, croppedHeight);
+
             return result.get();
-        }
-
-        function preprocessClothImage(inputImg, callback) {
-            if (!bodyPixReady) {
-                console.log("BodyPix not ready, using basic background removal");
-                callback(cropImageToContent(inputImg));
-                return;
-            }
-
-            bodyPixModel.segmentWithParts(inputImg, (error, result) => {
-                const partData = result && (result.data || (result.raw && result.raw.part));
-                if (error || !partData) {
-                    console.warn("BodyPix segmentation failed, using basic background removal:", error);
-                    callback(cropImageToContent(inputImg));
-                    return;
-                }
-
-                const w = inputImg.width;
-                const h = inputImg.height;
-
-                if (!isUpperBodyClothImage(partData, w * h)) {
-                    callback(cropImageToContent(inputImg));
-                    return;
-                }
-
-                const tempCanvas = createGraphics(w, h);
-                tempCanvas.pixelDensity(1);
-                tempCanvas.image(inputImg, 0, 0);
-                tempCanvas.loadPixels();
-
-                for (let i = 0; i < partData.length; i++) {
-                    if (!UPPER_BODY_CLOTH_PARTS.has(partData[i])) {
-                        const pixelIndex = i * 4;
-                        tempCanvas.pixels[pixelIndex + 3] = 0;
-                    }
-                }
-
-                tempCanvas.updatePixels();
-                callback(cropToTransparent(tempCanvas.get()));
-            });
         }
 
         // ============================================
@@ -775,10 +638,6 @@
         stopBtn.addEventListener('click', stopWebcam);
 
         // Initialize p5.js (required for p5 functions to work outside setup/draw)
-        function setup() {
-            noCanvas();
-        }
-
         console.log("Virtual Try-On initialized and ready!");
     </script>
 </body>
