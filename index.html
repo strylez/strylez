@@ -509,10 +509,10 @@
 
             background(255);
 
-            // Mirror the video
+            // Mirror the video and fit to canvas dimensions
             translate(width, 0);
             scale(-1, 1);
-            image(video, 0, 0);
+            image(video, 0, 0, width, height);
 
             // Calculate body positioning
             const body_neck_mid_position_x = (((lerpRightShoulderX - lerpLeftShoulderX) - 1) / 2) + lerpLeftShoulderX;
