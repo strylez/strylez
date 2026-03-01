@@ -323,6 +323,11 @@
         let hasColar = false;
         let try_on_flag = 1;
 
+        // Cached resized overlay image to avoid resizing every frame
+        let cachedResizedImg = null;
+        let lastImgRef = null;
+        let lastImgHeight = -1;
+
         // Sample image URL (replace with your own)
         const SAMPLE_IMAGE_URL = 'https://via.placeholder.com/300x400/667eea/ffffff?text=Sample+Cloth';
 
@@ -521,7 +526,14 @@
             const cloth_dist_to_mid_from_left_edge_x = (img_height - 1) / 2;
             const overlay_left_edge_x = body_neck_mid_position_x - cloth_dist_to_mid_from_left_edge_x;
 
-            img.resize(img_height, 0);
+            // Cache resized image to avoid resizing every frame
+            if (img !== lastImgRef || img_height !== lastImgHeight) {
+                if (cachedResizedImg) cachedResizedImg.remove();
+                cachedResizedImg = img.get();
+                cachedResizedImg.resize(img_height, 0);
+                lastImgRef = img;
+                lastImgHeight = img_height;
+            }
 
             if (try_on_flag === 1) {
                 // Wave animation settings
@@ -531,26 +543,28 @@
                 const edgePercent = 0.2;
 
                 const t = frameCount * waveSpeed;
-                const leftEdgeLimit = img.width * edgePercent;
-                const rightEdgeLimit = img.width * (1 - edgePercent);
+                const leftEdgeLimit = cachedResizedImg.width * edgePercent;
+                const rightEdgeLimit = cachedResizedImg.width * (1 - edgePercent);
 
-                // Draw with edge-based waving
-                for (let x = 0; x < img.width; x++) {
+                // Draw with edge-based waving using 4px-wide strips to reduce draw calls
+                const stripWidth = 4;
+                for (let x = 0; x < cachedResizedImg.width; x += stripWidth) {
+                    const sw = min(stripWidth, cachedResizedImg.width - x);
                     let offset = 0;
 
                     if (x < leftEdgeLimit) {
                         const strength = 1 - (x / leftEdgeLimit);
                         offset = sin((x * waveFrequency) + t) * waveAmplitude * strength;
                     } else if (x > rightEdgeLimit) {
-                        const distFromRight = img.width - x;
+                        const distFromRight = cachedResizedImg.width - x;
                         const strength = 1 - (distFromRight / leftEdgeLimit);
                         offset = sin((x * waveFrequency) + t) * waveAmplitude * strength;
                     }
 
                     copy(
-                        img,
-                        x, 0, 1, img.height,
-                        overlay_left_edge_x + x, y_position + offset, 1, img.height
+                        cachedResizedImg,
+                        x, 0, sw, cachedResizedImg.height,
+                        overlay_left_edge_x + x, y_position + offset, sw, cachedResizedImg.height
                     );
                 }
             }
@@ -563,6 +577,8 @@
             canvas = createCanvas(Math.min(window.innerWidth * 0.9, 600), 600);
             canvas.parent('videoFrame');
             canvas.style.display = "block";
+            pixelDensity(1);
+            frameRate(24);
 
             video = createCapture(VIDEO);
             video.style.display = "block";
@@ -586,6 +602,8 @@
             canvas = createCanvas(Math.min(window.innerWidth * 0.9, 600), 600);
             canvas.parent('videoFrame');
             canvas.style.display = "block";
+            pixelDensity(1);
+            frameRate(24);
 
             video = createVideo([url]);
             video.hide();
@@ -612,6 +630,12 @@
             }
             if (poseNet) {
                 poseNet.remove();
+            }
+            if (cachedResizedImg) {
+                cachedResizedImg.remove();
+                cachedResizedImg = null;
+                lastImgRef = null;
+                lastImgHeight = -1;
             }
             noLoop();
             started = false;
