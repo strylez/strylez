@@ -208,6 +208,30 @@
             cursor: pointer;
         }
 
+        .url-input-group {
+            display: flex;
+            gap: 10px;
+            margin: 10px 0;
+            flex-wrap: wrap;
+            justify-content: center;
+            width: 100%;
+        }
+
+        .url-input-group input[type="text"] {
+            flex: 1;
+            min-width: 200px;
+            padding: 10px 14px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        .url-input-group input[type="text"]:focus {
+            border-color: #667eea;
+        }
+
         .input-group {
             display: flex;
             gap: 10px;
@@ -262,6 +286,16 @@
                 <input type="file" id="imageUpload" accept="image/*" />
                 <button id="useSampleImage" class="button button--secondary">
                     Use Sample Image
+                </button>
+            </div>
+
+            <!-- Image URL Input -->
+            <div class="url-input-group">
+                <input type="text" id="imageUrlInput" placeholder="Or paste an image URL here…"
+                    aria-label="Image URL for overlay" />
+                <button id="loadImageUrl" class="button button--secondary"
+                    aria-describedby="imageUrlInput">
+                    Load from URL
                 </button>
             </div>
 
@@ -339,6 +373,8 @@
         const closeBtn = document.getElementsByClassName("close")[0];
         const imageUpload = document.getElementById("imageUpload");
         const useSampleImageBtn = document.getElementById("useSampleImage");
+        const imageUrlInput = document.getElementById("imageUrlInput");
+        const loadImageUrlBtn = document.getElementById("loadImageUrl");
         const startBtn = document.getElementById("selectedDress");
         const loadVideoBtn = document.getElementById("loadVideoBtn");
         const videoFileInput = document.getElementById("videoFileInput");
@@ -388,6 +424,21 @@
                 const croppedImage = cropImageToContent(loadedImage);
                 img = croppedImage;
                 enableControls();
+            });
+        };
+
+        loadImageUrlBtn.onclick = () => {
+            const url = imageUrlInput.value.trim();
+            if (!url) {
+                alert("Please enter an image URL.");
+                return;
+            }
+            loadImage(url, (loadedImage) => {
+                const croppedImage = cropImageToContent(loadedImage);
+                img = croppedImage;
+                enableControls();
+            }, () => {
+                alert("Failed to load image from the provided URL. Ensure the URL is correct and the server allows cross-origin requests (CORS).");
             });
         };
 
