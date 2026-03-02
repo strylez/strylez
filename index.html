@@ -574,6 +574,57 @@
                 tryEnqueue(cx, cy - 1);
             }
 
+            // Find all connected foreground components and keep only the largest
+            // (removes stray body parts like neck/hands without using skin-color detection)
+            const visited = new Uint8Array(w * h);
+            const components = [];
+            const nbrDx = [-1, 1, 0, 0];
+            const nbrDy = [0, 0, -1, 1];
+
+            for (let sy = 0; sy < h; sy++) {
+                for (let sx = 0; sx < w; sx++) {
+                    const sidx = sy * w + sx;
+                    if (!bgMask[sidx] && !visited[sidx]) {
+                        const component = [];
+                        const cq = [sx, sy];
+                        let cqi2 = 0;
+                        visited[sidx] = 1;
+                        component.push(sidx);
+                        while (cqi2 < cq.length) {
+                            const cx2 = cq[cqi2++];
+                            const cy2 = cq[cqi2++];
+                            for (let ni = 0; ni < 4; ni++) {
+                                const nx = cx2 + nbrDx[ni];
+                                const ny = cy2 + nbrDy[ni];
+                                if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+                                const nidx = ny * w + nx;
+                                if (!bgMask[nidx] && !visited[nidx]) {
+                                    visited[nidx] = 1;
+                                    component.push(nidx);
+                                    cq.push(nx, ny);
+                                }
+                            }
+                        }
+                        components.push(component);
+                    }
+                }
+            }
+
+            // Mark all components except the largest as background
+            if (components.length > 1) {
+                let largestIdx = 0;
+                for (let ci = 1; ci < components.length; ci++) {
+                    if (components[ci].length > components[largestIdx].length) largestIdx = ci;
+                }
+                for (let ci = 0; ci < components.length; ci++) {
+                    if (ci !== largestIdx) {
+                        for (let pi = 0; pi < components[ci].length; pi++) {
+                            bgMask[components[ci][pi]] = 1;
+                        }
+                    }
+                }
+            }
+
             // Make background pixels fully transparent
             for (let i = 0; i < w * h; i++) {
                 if (bgMask[i]) {
