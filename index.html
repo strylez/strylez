@@ -410,7 +410,7 @@
                 const reader = new FileReader();
                 reader.onload = (event) => {
                     loadImage(event.target.result, (loadedImage) => {
-                        const croppedImage = cropImageToContent(loadedImage);
+                        const croppedImage = extractClothWithContour(loadedImage);
                         img = croppedImage;
                         enableControls();
                     });
@@ -421,7 +421,7 @@
 
         useSampleImageBtn.onclick = () => {
             loadImage(SAMPLE_IMAGE_URL, (loadedImage) => {
-                const croppedImage = cropImageToContent(loadedImage);
+                const croppedImage = extractClothWithContour(loadedImage);
                 img = croppedImage;
                 enableControls();
             });
@@ -434,7 +434,7 @@
                 return;
             }
             loadImage(url, (loadedImage) => {
-                const croppedImage = cropImageToContent(loadedImage);
+                const croppedImage = extractClothWithContour(loadedImage);
                 img = croppedImage;
                 enableControls();
             }, () => {
@@ -487,36 +487,106 @@
         }
 
         // ============================================
-        // Image Cropping
+        // Contour-Based Cloth Extraction
         // ============================================
-        function cropImageToContent(inputImg) {
+
+        // Extracts the cloth from inputImg by:
+        // 1. Sampling the background color from the four corners of the image.
+        // 2. Running a BFS flood-fill from every border pixel to label all
+        //    connected background regions (contour-based masking).
+        // 3. Setting labelled pixels to fully transparent so only the cloth remains.
+        // 4. Returning a tightly cropped copy of the extracted cloth.
+        function extractClothWithContour(inputImg) {
             const w = inputImg.width;
             const h = inputImg.height;
+
             const tempCanvas = createGraphics(w, h);
             tempCanvas.pixelDensity(1);
             tempCanvas.image(inputImg, 0, 0);
             tempCanvas.loadPixels();
 
             const pixels = tempCanvas.pixels;
-            const bgColor = [255, 255, 255];
-            const tolerance = 25;
 
+            // Helper: read RGBA at (px, py)
+            function pixelAt(px, py) {
+                const i = (py * w + px) * 4;
+                return [pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]];
+            }
+
+            // Estimate background color by averaging the four corner samples
+            const corners = [
+                pixelAt(0, 0),
+                pixelAt(w - 1, 0),
+                pixelAt(0, h - 1),
+                pixelAt(w - 1, h - 1)
+            ];
+            let bgR = 0, bgG = 0, bgB = 0;
+            corners.forEach(c => { bgR += c[0]; bgG += c[1]; bgB += c[2]; });
+            bgR = Math.round(bgR / 4);
+            bgG = Math.round(bgG / 4);
+            bgB = Math.round(bgB / 4);
+
+            // Euclidean color distance from the estimated background
+            const tolerance = 40;
+            function isBackgroundColor(r, g, b) {
+                return Math.sqrt(
+                    (r - bgR) * (r - bgR) +
+                    (g - bgG) * (g - bgG) +
+                    (b - bgB) * (b - bgB)
+                ) < tolerance;
+            }
+
+            // BFS flood-fill from all border pixels to detect the background contour
+            const bgMask = new Uint8Array(w * h); // 1 = background
+            const queue = [];
+
+            function tryEnqueue(x, y) {
+                if (x < 0 || x >= w || y < 0 || y >= h) return;
+                const idx = y * w + x;
+                if (bgMask[idx]) return;
+                const pi = idx * 4;
+                const a = pixels[pi + 3];
+                const r = pixels[pi], g = pixels[pi + 1], b = pixels[pi + 2];
+                if (a < 10 || isBackgroundColor(r, g, b)) {
+                    bgMask[idx] = 1;
+                    queue.push(x, y);
+                }
+            }
+
+            // Seed the flood-fill from all four edges
+            for (let x = 0; x < w; x++) {
+                tryEnqueue(x, 0);
+                tryEnqueue(x, h - 1);
+            }
+            for (let y = 1; y < h - 1; y++) {
+                tryEnqueue(0, y);
+                tryEnqueue(w - 1, y);
+            }
+
+            // Process BFS queue
+            let qi = 0;
+            while (qi < queue.length) {
+                const cx = queue[qi++];
+                const cy = queue[qi++];
+                tryEnqueue(cx + 1, cy);
+                tryEnqueue(cx - 1, cy);
+                tryEnqueue(cx, cy + 1);
+                tryEnqueue(cx, cy - 1);
+            }
+
+            // Make background pixels fully transparent
+            for (let i = 0; i < w * h; i++) {
+                if (bgMask[i]) {
+                    pixels[i * 4 + 3] = 0;
+                }
+            }
+            tempCanvas.updatePixels();
+
+            // Determine tight bounding box of the remaining cloth pixels
             let minX = w, minY = h, maxX = -1, maxY = -1;
-
             for (let y = 0; y < h; y++) {
                 for (let x = 0; x < w; x++) {
-                    const index = (y * w + x) * 4;
-                    const r = pixels[index];
-                    const g = pixels[index + 1];
-                    const b = pixels[index + 2];
-                    const a = pixels[index + 3];
-
-                    const isBackground =
-                        Math.abs(r - bgColor[0]) < tolerance &&
-                        Math.abs(g - bgColor[1]) < tolerance &&
-                        Math.abs(b - bgColor[2]) < tolerance;
-
-                    if (a > 0 && !isBackground) {
+                    if (!bgMask[y * w + x]) {
                         if (x < minX) minX = x;
                         if (y < minY) minY = y;
                         if (x > maxX) maxX = x;
@@ -525,11 +595,13 @@
                 }
             }
 
-            const croppedWidth = maxX - minX + 1;
-            const croppedHeight = maxY - minY + 1;
+            // Fallback: return original if nothing was found
+            if (maxX < minX || maxY < minY) return inputImg;
 
-            const result = createGraphics(croppedWidth, croppedHeight);
-            result.copy(tempCanvas, minX, minY, croppedWidth, croppedHeight, 0, 0, croppedWidth, croppedHeight);
+            const cw = maxX - minX + 1;
+            const ch = maxY - minY + 1;
+            const result = createGraphics(cw, ch);
+            result.copy(tempCanvas, minX, minY, cw, ch, 0, 0, cw, ch);
 
             return result.get();
         }
