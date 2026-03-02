@@ -487,6 +487,21 @@
         }
 
         // ============================================
+        // Skin Color Detection
+        // Uses RGB-based skin detection (Kovac et al.):
+        //   r > 95, g > 40, b > 20, range > 15, |r-g| > 15, r > g, r > b
+        // May produce false positives on warm-toned cloth colors.
+        // ============================================
+        function isSkinColor(r, g, b) {
+            return (
+                r > 95 && g > 40 && b > 20 &&
+                Math.max(r, g, b) - Math.min(r, g, b) > 15 &&
+                Math.abs(r - g) > 15 &&
+                r > g && r > b
+            );
+        }
+
+        // ============================================
         // Image Cropping
         // ============================================
         function cropImageToContent(inputImg) {
@@ -516,7 +531,7 @@
                         Math.abs(g - bgColor[1]) < tolerance &&
                         Math.abs(b - bgColor[2]) < tolerance;
 
-                    if (a > 0 && !isBackground) {
+                    if (a > 0 && !isBackground && !isSkinColor(r, g, b)) {
                         if (x < minX) minX = x;
                         if (y < minY) minY = y;
                         if (x > maxX) maxX = x;
