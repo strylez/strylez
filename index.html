@@ -610,14 +610,25 @@
                 }
             }
 
-            // Mark all components except the largest as background
+            // Mark all components except the garment component as background.
+            // The garment is identified as the component containing the image centre
+            // pixel (garment images are always centred); if that pixel is background,
+            // fall back to the largest component.  This is more reliable than always
+            // keeping the largest, which would incorrectly retain a large body-part
+            // mass (e.g. mannequin torso) over a smaller centred garment.
             if (components.length > 1) {
-                let largestIdx = 0;
+                let garmentIdx = 0;
                 for (let ci = 1; ci < components.length; ci++) {
-                    if (components[ci].length > components[largestIdx].length) largestIdx = ci;
+                    if (components[ci].length > components[garmentIdx].length) garmentIdx = ci;
+                }
+                const centerPx = Math.floor(h / 2) * w + Math.floor(w / 2);
+                if (!bgMask[centerPx]) { // centre pixel is foreground — find its component
+                    for (let ci = 0; ci < components.length; ci++) {
+                        if (components[ci].includes(centerPx)) { garmentIdx = ci; break; }
+                    }
                 }
                 for (let ci = 0; ci < components.length; ci++) {
-                    if (ci !== largestIdx) {
+                    if (ci !== garmentIdx) {
                         for (let pi = 0; pi < components[ci].length; pi++) {
                             bgMask[components[ci][pi]] = 1;
                         }
