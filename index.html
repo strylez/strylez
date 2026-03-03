@@ -257,6 +257,36 @@
             }
         }
 
+        .contour-sensitivity {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 10px 0 14px;
+            font-size: 13px;
+            color: #555;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .contour-sensitivity label {
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .contour-sensitivity input[type="range"] {
+            flex: 1;
+            min-width: 120px;
+            max-width: 260px;
+            accent-color: #667eea;
+        }
+
+        .contour-sensitivity span {
+            min-width: 32px;
+            text-align: right;
+            font-weight: 600;
+            color: #667eea;
+        }
+
         #contourCanvasWrapper {
             text-align: center;
             margin: 15px 0;
@@ -367,6 +397,12 @@
                 <span class="sel">■ Green = selected (kept)</span>&nbsp;&nbsp;
                 <span class="unsel">■ Red = not selected (removed)</span>
             </p>
+            <div class="contour-sensitivity">
+                <label for="contourSensitivity">Detection Sensitivity:</label>
+                <input type="range" id="contourSensitivity" min="5" max="120" step="5" value="40"
+                    aria-label="Contour detection sensitivity" />
+                <span id="contourSensitivityValue">40</span>
+            </div>
             <div id="contourCanvasWrapper">
                 <canvas id="contourCanvas"></canvas>
             </div>
@@ -425,6 +461,7 @@
         let _contourSelectedSet = new Set();
         let _contourCallback = null;
         let _contourScale = 1;
+        let _contourSensitivity = 40;
 
         // ============================================
         // DOM Elements
@@ -557,7 +594,7 @@
         // Performs BFS background flood-fill and labels all connected foreground
         // components. Returns the raw data needed for interactive selection and
         // for the final apply step — without modifying inputImg.
-        function _computeContourData(inputImg) {
+        function _computeContourData(inputImg, tolerance) {
             const w = inputImg.width;
             const h = inputImg.height;
 
@@ -577,7 +614,6 @@
             corners.forEach(c => { bgR += c[0]; bgG += c[1]; bgB += c[2]; });
             bgR = Math.round(bgR / 4); bgG = Math.round(bgG / 4); bgB = Math.round(bgB / 4);
 
-            const tolerance = 40;
             function isBackgroundColor(r, g, b) {
                 return Math.sqrt((r - bgR) ** 2 + (g - bgG) ** 2 + (b - bgB) ** 2) < tolerance;
             }
@@ -693,16 +729,9 @@
             ctx.putImageData(overlayData, 0, 0);
         }
 
-        // Opens the contour selector modal. After the user confirms their
-        // selection, callback is invoked with the resulting p5.Image.
-        function showContourSelector(inputImg, callback) {
-            _contourInputImg = inputImg;
-            _contourCallback = callback;
-            _contourData = _computeContourData(inputImg);
-            const { components, bgMask, w, h } = _contourData;
-
-            // Pre-select the garment component: prefer the component that
-            // contains the image centre pixel, falling back to the largest.
+        // Pre-selects the best garment component: prefers the component that
+        // contains the image centre pixel, falling back to the largest one.
+        function _preselectBestComponent(components, bgMask, w, h) {
             _contourSelectedSet.clear();
             if (components.length > 0) {
                 let bestIdx = 0;
@@ -717,6 +746,21 @@
                 }
                 _contourSelectedSet.add(bestIdx);
             }
+        }
+
+        // Opens the contour selector modal. After the user confirms their
+        // selection, callback is invoked with the resulting p5.Image.
+        function showContourSelector(inputImg, callback) {
+            _contourInputImg = inputImg;
+            _contourCallback = callback;
+            _contourSensitivity = 40;
+            const slider = document.getElementById('contourSensitivity');
+            slider.value = _contourSensitivity;
+            document.getElementById('contourSensitivityValue').textContent = _contourSensitivity;
+            _contourData = _computeContourData(inputImg, _contourSensitivity);
+            const { components, bgMask, w, h } = _contourData;
+
+            _preselectBestComponent(components, bgMask, w, h);
 
             _renderContourCanvas();
             document.getElementById('contourModal').style.display = 'block';
@@ -1189,6 +1233,16 @@
 
         document.getElementById('contourClearAll').addEventListener('click', () => {
             _contourSelectedSet.clear();
+            _renderContourCanvas();
+        });
+
+        document.getElementById('contourSensitivity').addEventListener('input', (e) => {
+            if (!_contourInputImg) return;
+            _contourSensitivity = parseInt(e.target.value, 10);
+            document.getElementById('contourSensitivityValue').textContent = _contourSensitivity;
+            _contourData = _computeContourData(_contourInputImg, _contourSensitivity);
+            const { components, bgMask, w, h } = _contourData;
+            _preselectBestComponent(components, bgMask, w, h);
             _renderContourCanvas();
         });
 
