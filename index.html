@@ -256,6 +256,36 @@
                 font-size: 24px;
             }
         }
+
+        #contourCanvasWrapper {
+            text-align: center;
+            margin: 15px 0;
+            overflow: auto;
+            max-height: 55vh;
+        }
+
+        #contourCanvas {
+            cursor: crosshair;
+            max-width: 100%;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+        }
+
+        .contour-legend {
+            font-size: 13px;
+            margin: 6px 0 14px;
+            color: #555;
+        }
+
+        .contour-legend .sel {
+            color: #16a34a;
+            font-weight: 700;
+        }
+
+        .contour-legend .unsel {
+            color: #dc2626;
+            font-weight: 700;
+        }
     </style>
 </head>
 <body>
@@ -327,6 +357,28 @@
         </div>
     </div>
 
+    <!-- Contour Region Selector Modal -->
+    <div id="contourModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="contourModalTitle">
+        <div class="modal-content">
+            <span class="close" id="contourClose" aria-label="Close">&times;</span>
+            <h2 id="contourModalTitle">Select Cloth Region</h2>
+            <p class="contour-legend">
+                Click the regions you want to <strong>keep</strong>.&nbsp;
+                <span class="sel">■ Green = selected (kept)</span>&nbsp;&nbsp;
+                <span class="unsel">■ Red = not selected (removed)</span>
+            </p>
+            <div id="contourCanvasWrapper">
+                <canvas id="contourCanvas"></canvas>
+            </div>
+            <div class="modal-controls">
+                <button id="contourSelectAll" class="button button--secondary">Select All</button>
+                <button id="contourClearAll" class="button button--secondary">Clear All</button>
+                <button id="contourConfirm" class="button button--secondary">Apply Selection</button>
+                <button id="contourCancel" class="button button--danger">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <!-- p5.js and ml5.js Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/addons/p5.sound.min.js"></script>
@@ -364,6 +416,15 @@
 
         // Sample image URL (replace with your own)
         const SAMPLE_IMAGE_URL = 'https://via.placeholder.com/300x400/667eea/ffffff?text=Sample+Cloth';
+
+        // ============================================
+        // Contour selector state
+        // ============================================
+        let _contourInputImg = null;
+        let _contourData = null;
+        let _contourSelectedSet = new Set();
+        let _contourCallback = null;
+        let _contourScale = 1;
 
         // ============================================
         // DOM Elements
@@ -410,9 +471,10 @@
                 const reader = new FileReader();
                 reader.onload = (event) => {
                     loadImage(event.target.result, (loadedImage) => {
-                        const croppedImage = extractClothWithContour(loadedImage);
-                        img = croppedImage;
-                        enableControls();
+                        showContourSelector(loadedImage, (result) => {
+                            img = result;
+                            enableControls();
+                        });
                     });
                 };
                 reader.readAsDataURL(file);
@@ -421,9 +483,10 @@
 
         useSampleImageBtn.onclick = () => {
             loadImage(SAMPLE_IMAGE_URL, (loadedImage) => {
-                const croppedImage = extractClothWithContour(loadedImage);
-                img = croppedImage;
-                enableControls();
+                showContourSelector(loadedImage, (result) => {
+                    img = result;
+                    enableControls();
+                });
             });
         };
 
@@ -434,9 +497,10 @@
                 return;
             }
             loadImage(url, (loadedImage) => {
-                const croppedImage = extractClothWithContour(loadedImage);
-                img = croppedImage;
-                enableControls();
+                showContourSelector(loadedImage, (result) => {
+                    img = result;
+                    enableControls();
+                });
             }, () => {
                 alert("Failed to load image from the provided URL. Ensure the URL is correct and the server allows cross-origin requests (CORS).");
             });
@@ -484,6 +548,229 @@
 
         function modelReady() {
             console.log("PoseNet model ready");
+        }
+
+        // ============================================
+        // Interactive Contour Selection
+        // ============================================
+
+        // Performs BFS background flood-fill and labels all connected foreground
+        // components. Returns the raw data needed for interactive selection and
+        // for the final apply step — without modifying inputImg.
+        function _computeContourData(inputImg) {
+            const w = inputImg.width;
+            const h = inputImg.height;
+
+            const tempCanvas = createGraphics(w, h);
+            tempCanvas.pixelDensity(1);
+            tempCanvas.image(inputImg, 0, 0);
+            tempCanvas.loadPixels();
+            const pixels = tempCanvas.pixels;
+
+            function pixelAt(px, py) {
+                const i = (py * w + px) * 4;
+                return [pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]];
+            }
+
+            const corners = [pixelAt(0, 0), pixelAt(w - 1, 0), pixelAt(0, h - 1), pixelAt(w - 1, h - 1)];
+            let bgR = 0, bgG = 0, bgB = 0;
+            corners.forEach(c => { bgR += c[0]; bgG += c[1]; bgB += c[2]; });
+            bgR = Math.round(bgR / 4); bgG = Math.round(bgG / 4); bgB = Math.round(bgB / 4);
+
+            const tolerance = 40;
+            function isBackgroundColor(r, g, b) {
+                return Math.sqrt((r - bgR) ** 2 + (g - bgG) ** 2 + (b - bgB) ** 2) < tolerance;
+            }
+
+            const bgMask = new Uint8Array(w * h);
+            const queue = [];
+
+            function tryEnqueue(x, y) {
+                if (x < 0 || x >= w || y < 0 || y >= h) return;
+                const idx = y * w + x;
+                if (bgMask[idx]) return;
+                const pi = idx * 4;
+                if (pixels[pi + 3] < 10 || isBackgroundColor(pixels[pi], pixels[pi + 1], pixels[pi + 2])) {
+                    bgMask[idx] = 1;
+                    queue.push(x, y);
+                }
+            }
+
+            for (let x = 0; x < w; x++) { tryEnqueue(x, 0); tryEnqueue(x, h - 1); }
+            for (let y = 1; y < h - 1; y++) { tryEnqueue(0, y); tryEnqueue(w - 1, y); }
+
+            let qi = 0;
+            while (qi < queue.length) {
+                const cx = queue[qi++], cy = queue[qi++];
+                tryEnqueue(cx + 1, cy); tryEnqueue(cx - 1, cy);
+                tryEnqueue(cx, cy + 1); tryEnqueue(cx, cy - 1);
+            }
+
+            // Label every foreground pixel with its component index
+            const componentMap = new Int32Array(w * h).fill(-1);
+            const components = [];
+            const nbrDx = [-1, 1, 0, 0], nbrDy = [0, 0, -1, 1];
+
+            for (let sy = 0; sy < h; sy++) {
+                for (let sx = 0; sx < w; sx++) {
+                    const sidx = sy * w + sx;
+                    if (!bgMask[sidx] && componentMap[sidx] === -1) {
+                        const ci = components.length;
+                        const comp = [sidx];
+                        const cq = [sx, sy];
+                        componentMap[sidx] = ci;
+                        let queueIdx = 0;
+                        while (queueIdx < cq.length) {
+                            const cx2 = cq[queueIdx++], cy2 = cq[queueIdx++];
+                            for (let ni = 0; ni < 4; ni++) {
+                                const nx = cx2 + nbrDx[ni], ny = cy2 + nbrDy[ni];
+                                if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+                                const nidx = ny * w + nx;
+                                if (!bgMask[nidx] && componentMap[nidx] === -1) {
+                                    componentMap[nidx] = ci;
+                                    comp.push(nidx);
+                                    cq.push(nx, ny);
+                                }
+                            }
+                        }
+                        components.push(comp);
+                    }
+                }
+            }
+
+            const rawPixels = pixels.slice();
+            tempCanvas.remove();
+            return { bgMask, componentMap, components, rawPixels, w, h };
+        }
+
+        // Renders the image onto #contourCanvas with green/red tint overlays
+        // for selected/unselected foreground regions.
+        function _renderContourCanvas() {
+            const { componentMap, rawPixels, w, h } = _contourData;
+            const htmlCanvas = document.getElementById('contourCanvas');
+            const maxW = Math.min(560, Math.floor(window.innerWidth * 0.78));
+            _contourScale = Math.min(1, maxW / w);
+            const dw = Math.round(w * _contourScale);
+            const dh = Math.round(h * _contourScale);
+            htmlCanvas.width = dw;
+            htmlCanvas.height = dh;
+
+            const ctx = htmlCanvas.getContext('2d');
+
+            // Draw original image at display size via a temporary HTML canvas
+            const tmpCanvas = document.createElement('canvas');
+            tmpCanvas.width = w; tmpCanvas.height = h;
+            const tmpCtx = tmpCanvas.getContext('2d');
+            const imgData = tmpCtx.createImageData(w, h);
+            imgData.data.set(rawPixels);
+            tmpCtx.putImageData(imgData, 0, 0);
+            ctx.drawImage(tmpCanvas, 0, 0, dw, dh);
+
+            // Apply tint overlays per pixel based on component membership
+            const overlayData = ctx.getImageData(0, 0, dw, dh);
+            const od = overlayData.data;
+            for (let dy = 0; dy < dh; dy++) {
+                for (let dx = 0; dx < dw; dx++) {
+                    const srcX = Math.min(w - 1, Math.round(dx / _contourScale));
+                    const srcY = Math.min(h - 1, Math.round(dy / _contourScale));
+                    const ci = componentMap[srcY * w + srcX];
+                    if (ci !== -1) {
+                        const pi = (dy * dw + dx) * 4;
+                        if (_contourSelectedSet.has(ci)) {
+                            // Green tint for selected regions
+                            od[pi]     = Math.round(od[pi] * 0.4);
+                            od[pi + 1] = Math.min(255, Math.round(od[pi + 1] * 0.4 + 180));
+                            od[pi + 2] = Math.round(od[pi + 2] * 0.4);
+                        } else {
+                            // Red tint for unselected regions
+                            od[pi]     = Math.min(255, Math.round(od[pi] * 0.4 + 180));
+                            od[pi + 1] = Math.round(od[pi + 1] * 0.4);
+                            od[pi + 2] = Math.round(od[pi + 2] * 0.4);
+                        }
+                    }
+                }
+            }
+            ctx.putImageData(overlayData, 0, 0);
+        }
+
+        // Opens the contour selector modal. After the user confirms their
+        // selection, callback is invoked with the resulting p5.Image.
+        function showContourSelector(inputImg, callback) {
+            _contourInputImg = inputImg;
+            _contourCallback = callback;
+            _contourData = _computeContourData(inputImg);
+            const { components, bgMask, w, h } = _contourData;
+
+            // Pre-select the garment component: prefer the component that
+            // contains the image centre pixel, falling back to the largest.
+            _contourSelectedSet.clear();
+            if (components.length > 0) {
+                let bestIdx = 0;
+                for (let ci = 1; ci < components.length; ci++) {
+                    if (components[ci].length > components[bestIdx].length) bestIdx = ci;
+                }
+                const centerPx = Math.floor(h / 2) * w + Math.floor(w / 2);
+                if (!bgMask[centerPx]) {
+                    for (let ci = 0; ci < components.length; ci++) {
+                        if (components[ci].includes(centerPx)) { bestIdx = ci; break; }
+                    }
+                }
+                _contourSelectedSet.add(bestIdx);
+            }
+
+            _renderContourCanvas();
+            document.getElementById('contourModal').style.display = 'block';
+        }
+
+        // Builds and returns the final p5.Image from the user's selection,
+        // making unselected and background pixels fully transparent, then
+        // cropping to the tight bounding box of the selected pixels.
+        function _applyContourSelection() {
+            const { bgMask, componentMap, w, h } = _contourData;
+            const inputImg = _contourInputImg;
+
+            if (_contourSelectedSet.size === 0) {
+                alert("Please select at least one region to keep.");
+                return null;
+            }
+
+            const tempCanvas = createGraphics(w, h);
+            tempCanvas.pixelDensity(1);
+            tempCanvas.image(inputImg, 0, 0);
+            tempCanvas.loadPixels();
+            const pixels = tempCanvas.pixels;
+
+            for (let i = 0; i < w * h; i++) {
+                if (bgMask[i] || !_contourSelectedSet.has(componentMap[i])) {
+                    pixels[i * 4 + 3] = 0;
+                }
+            }
+            tempCanvas.updatePixels();
+
+            let minX = w, minY = h, maxX = -1, maxY = -1;
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    const i = y * w + x;
+                    if (_contourSelectedSet.has(componentMap[i])) {
+                        if (x < minX) minX = x;
+                        if (y < minY) minY = y;
+                        if (x > maxX) maxX = x;
+                        if (y > maxY) maxY = y;
+                    }
+                }
+            }
+
+            if (maxX < minX || maxY < minY) {
+                tempCanvas.remove();
+                return inputImg;
+            }
+
+            const cw = maxX - minX + 1;
+            const ch = maxY - minY + 1;
+            const result = createGraphics(cw, ch);
+            result.copy(tempCanvas, minX, minY, cw, ch, 0, 0, cw, ch);
+            tempCanvas.remove();
+            return result.get();
         }
 
         // ============================================
@@ -872,6 +1159,59 @@
             startBtn.addEventListener('click', startWebcam, { once: true });
             loadVideoBtn.disabled = false;
         }
+
+        // ============================================
+        // Contour Selector Event Listeners
+        // ============================================
+        document.getElementById('contourCanvas').addEventListener('click', (e) => {
+            if (!_contourData) return;
+            const rect = e.target.getBoundingClientRect();
+            const dx = e.clientX - rect.left;
+            const dy = e.clientY - rect.top;
+            const srcX = Math.min(_contourData.w - 1, Math.round(dx / _contourScale));
+            const srcY = Math.min(_contourData.h - 1, Math.round(dy / _contourScale));
+            const ci = _contourData.componentMap[srcY * _contourData.w + srcX];
+            if (ci !== -1) {
+                if (_contourSelectedSet.has(ci)) {
+                    _contourSelectedSet.delete(ci);
+                } else {
+                    _contourSelectedSet.add(ci);
+                }
+                _renderContourCanvas();
+            }
+        });
+
+        document.getElementById('contourSelectAll').addEventListener('click', () => {
+            if (!_contourData) return;
+            _contourData.components.forEach((_, ci) => _contourSelectedSet.add(ci));
+            _renderContourCanvas();
+        });
+
+        document.getElementById('contourClearAll').addEventListener('click', () => {
+            _contourSelectedSet.clear();
+            _renderContourCanvas();
+        });
+
+        document.getElementById('contourConfirm').addEventListener('click', () => {
+            const result = _applyContourSelection();
+            if (result) {
+                document.getElementById('contourModal').style.display = 'none';
+                if (_contourCallback) {
+                    _contourCallback(result);
+                    _contourCallback = null;
+                }
+            }
+        });
+
+        document.getElementById('contourCancel').addEventListener('click', () => {
+            document.getElementById('contourModal').style.display = 'none';
+            _contourCallback = null;
+        });
+
+        document.getElementById('contourClose').addEventListener('click', () => {
+            document.getElementById('contourModal').style.display = 'none';
+            _contourCallback = null;
+        });
 
         // ============================================
         // Event Listeners
