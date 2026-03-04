@@ -316,6 +316,21 @@
             color: #dc2626;
             font-weight: 700;
         }
+
+        #cropCanvasWrapper {
+            text-align: center;
+            margin: 15px 0;
+            overflow: auto;
+            max-height: 55vh;
+        }
+
+        #cropCanvas {
+            cursor: crosshair;
+            max-width: 100%;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            user-select: none;
+        }
     </style>
 </head>
 <body>
@@ -384,6 +399,26 @@
 
             <!-- Hidden input for dress type -->
             <button id="selectedDressType" value="tops" style="display:none;">Dress Type</button>
+        </div>
+    </div>
+
+    <!-- Crop Selector Modal -->
+    <div id="cropModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="cropModalTitle">
+        <div class="modal-content">
+            <span class="close" id="cropClose" aria-label="Close">&times;</span>
+            <h2 id="cropModalTitle">Crop Image (Optional)</h2>
+            <p class="contour-legend">
+                Drag on the image to select the area to keep before background removal.
+                Click <strong>Apply Crop</strong> to confirm, or <strong>Skip</strong> to use the full image.
+            </p>
+            <div id="cropCanvasWrapper">
+                <canvas id="cropCanvas"></canvas>
+            </div>
+            <div class="modal-controls">
+                <button id="cropApply" class="button button--secondary" disabled>Apply Crop</button>
+                <button id="cropSkip" class="button button--secondary">Skip</button>
+                <button id="cropCancel" class="button button--danger">Cancel</button>
+            </div>
         </div>
     </div>
 
@@ -464,6 +499,20 @@
         let _contourSensitivity = 40;
 
         // ============================================
+        // Crop selector state
+        // ============================================
+        let _cropInputImg = null;
+        let _cropCallback = null;
+        let _cropScale = 1;
+        let _cropRawPixels = null;
+        let _cropImgW = 0;
+        let _cropImgH = 0;
+        let _cropRect = null;   // {x1, y1, x2, y2} in source image coordinates
+        let _cropDragging = false;
+        let _cropDragStartX = 0;
+        let _cropDragStartY = 0;
+
+        // ============================================
         // DOM Elements
         // ============================================
         const modal = document.getElementById("myModal");
@@ -508,9 +557,11 @@
                 const reader = new FileReader();
                 reader.onload = (event) => {
                     loadImage(event.target.result, (loadedImage) => {
-                        showContourSelector(loadedImage, (result) => {
-                            img = result;
-                            enableControls();
+                        showCropSelector(loadedImage, (croppedImage) => {
+                            showContourSelector(croppedImage, (result) => {
+                                img = result;
+                                enableControls();
+                            });
                         });
                     });
                 };
@@ -520,9 +571,11 @@
 
         useSampleImageBtn.onclick = () => {
             loadImage(SAMPLE_IMAGE_URL, (loadedImage) => {
-                showContourSelector(loadedImage, (result) => {
-                    img = result;
-                    enableControls();
+                showCropSelector(loadedImage, (croppedImage) => {
+                    showContourSelector(croppedImage, (result) => {
+                        img = result;
+                        enableControls();
+                    });
                 });
             });
         };
@@ -534,9 +587,11 @@
                 return;
             }
             loadImage(url, (loadedImage) => {
-                showContourSelector(loadedImage, (result) => {
-                    img = result;
-                    enableControls();
+                showCropSelector(loadedImage, (croppedImage) => {
+                    showContourSelector(croppedImage, (result) => {
+                        img = result;
+                        enableControls();
+                    });
                 });
             }, () => {
                 alert("Failed to load image from the provided URL. Ensure the URL is correct and the server allows cross-origin requests (CORS).");
@@ -764,6 +819,101 @@
 
             _renderContourCanvas();
             document.getElementById('contourModal').style.display = 'block';
+        }
+
+        // ============================================
+        // Crop Selector
+        // ============================================
+
+        // Opens the crop selector modal. callback(croppedImg) is called after
+        // the user applies a crop or skips; nothing is called on cancel.
+        function showCropSelector(inputImg, callback) {
+            _cropInputImg = inputImg;
+            _cropCallback = callback;
+            _cropRect = null;
+            _cropDragging = false;
+            _cropImgW = inputImg.width;
+            _cropImgH = inputImg.height;
+
+            // Cache raw pixels for fast, repeated rendering
+            const tmpGfx = createGraphics(_cropImgW, _cropImgH);
+            tmpGfx.pixelDensity(1);
+            tmpGfx.image(inputImg, 0, 0);
+            tmpGfx.loadPixels();
+            _cropRawPixels = tmpGfx.pixels.slice();
+            tmpGfx.remove();
+
+            const htmlCanvas = document.getElementById('cropCanvas');
+            const maxW = Math.min(560, Math.floor(window.innerWidth * 0.78));
+            _cropScale = Math.min(1, maxW / _cropImgW);
+            htmlCanvas.width = Math.round(_cropImgW * _cropScale);
+            htmlCanvas.height = Math.round(_cropImgH * _cropScale);
+
+            document.getElementById('cropApply').disabled = true;
+            _renderCropCanvas();
+            document.getElementById('cropModal').style.display = 'block';
+        }
+
+        // Draws the cached image plus a dimmed overlay and selection rectangle
+        // onto #cropCanvas.
+        function _renderCropCanvas() {
+            const htmlCanvas = document.getElementById('cropCanvas');
+            const ctx = htmlCanvas.getContext('2d');
+            const dw = htmlCanvas.width;
+            const dh = htmlCanvas.height;
+
+            // Draw image from cached raw pixels
+            const tmpCanvas = document.createElement('canvas');
+            tmpCanvas.width = _cropImgW;
+            tmpCanvas.height = _cropImgH;
+            const tmpCtx = tmpCanvas.getContext('2d');
+            const imgData = tmpCtx.createImageData(_cropImgW, _cropImgH);
+            imgData.data.set(_cropRawPixels);
+            tmpCtx.putImageData(imgData, 0, 0);
+            ctx.drawImage(tmpCanvas, 0, 0, dw, dh);
+
+            if (_cropRect) {
+                const rx = Math.min(_cropRect.x1, _cropRect.x2) * _cropScale;
+                const ry = Math.min(_cropRect.y1, _cropRect.y2) * _cropScale;
+                const rw = Math.abs(_cropRect.x2 - _cropRect.x1) * _cropScale;
+                const rh = Math.abs(_cropRect.y2 - _cropRect.y1) * _cropScale;
+
+                // Dim the area outside the selection
+                ctx.fillStyle = 'rgba(0,0,0,0.45)';
+                ctx.fillRect(0, 0, dw, ry);
+                ctx.fillRect(0, ry, rx, rh);
+                ctx.fillRect(rx + rw, ry, dw - rx - rw, rh);
+                ctx.fillRect(0, ry + rh, dw, dh - ry - rh);
+
+                // Draw selection border
+                ctx.strokeStyle = '#667eea';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([6, 3]);
+                ctx.strokeRect(rx, ry, rw, rh);
+                ctx.setLineDash([]);
+            }
+        }
+
+        // Returns a new p5.Image cropped to the current _cropRect,
+        // or the original image if no valid selection exists.
+        function _applyCrop() {
+            if (!_cropRect || !_cropInputImg) return _cropInputImg;
+            const x1 = Math.round(Math.min(_cropRect.x1, _cropRect.x2));
+            const y1 = Math.round(Math.min(_cropRect.y1, _cropRect.y2));
+            const x2 = Math.round(Math.max(_cropRect.x1, _cropRect.x2));
+            const y2 = Math.round(Math.max(_cropRect.y1, _cropRect.y2));
+            const cw = x2 - x1;
+            const ch = y2 - y1;
+            if (cw < 1 || ch < 1) return _cropInputImg;
+
+            const srcGfx = createGraphics(_cropImgW, _cropImgH);
+            srcGfx.pixelDensity(1);
+            srcGfx.image(_cropInputImg, 0, 0);
+            const result = createGraphics(cw, ch);
+            result.pixelDensity(1);
+            result.copy(srcGfx, x1, y1, cw, ch, 0, 0, cw, ch);
+            srcGfx.remove();
+            return result.get();
         }
 
         // Builds and returns the final p5.Image from the user's selection,
@@ -1265,6 +1415,110 @@
         document.getElementById('contourClose').addEventListener('click', () => {
             document.getElementById('contourModal').style.display = 'none';
             _contourCallback = null;
+        });
+
+        // ============================================
+        // Crop Selector Event Listeners
+        // ============================================
+        (function () {
+            const cropCanvas = document.getElementById('cropCanvas');
+            const MIN_CROP_SIZE = 2; // minimum drag size in source pixels to enable Apply Crop
+
+            function getCropSrcCoords(clientX, clientY) {
+                const rect = cropCanvas.getBoundingClientRect();
+                return {
+                    srcX: Math.max(0, Math.min(_cropImgW - 1, Math.round((clientX - rect.left) / _cropScale))),
+                    srcY: Math.max(0, Math.min(_cropImgH - 1, Math.round((clientY - rect.top) / _cropScale)))
+                };
+            }
+
+            function onCropPointerDown(clientX, clientY) {
+                if (!_cropRawPixels) return;
+                const { srcX, srcY } = getCropSrcCoords(clientX, clientY);
+                _cropDragging = true;
+                _cropDragStartX = srcX;
+                _cropDragStartY = srcY;
+                _cropRect = { x1: srcX, y1: srcY, x2: srcX, y2: srcY };
+                document.getElementById('cropApply').disabled = true;
+            }
+
+            function onCropPointerMove(clientX, clientY) {
+                if (!_cropDragging || !_cropRawPixels) return;
+                const { srcX, srcY } = getCropSrcCoords(clientX, clientY);
+                _cropRect.x2 = srcX;
+                _cropRect.y2 = srcY;
+                _renderCropCanvas();
+            }
+
+            function onCropPointerUp(clientX, clientY) {
+                if (!_cropDragging) return;
+                _cropDragging = false;
+                const { srcX, srcY } = getCropSrcCoords(clientX, clientY);
+                _cropRect.x2 = srcX;
+                _cropRect.y2 = srcY;
+                const w = Math.abs(_cropRect.x2 - _cropRect.x1);
+                const h = Math.abs(_cropRect.y2 - _cropRect.y1);
+                document.getElementById('cropApply').disabled = (w < MIN_CROP_SIZE || h < MIN_CROP_SIZE);
+                _renderCropCanvas();
+            }
+
+            cropCanvas.addEventListener('mousedown', (e) => onCropPointerDown(e.clientX, e.clientY));
+            cropCanvas.addEventListener('mousemove', (e) => onCropPointerMove(e.clientX, e.clientY));
+            cropCanvas.addEventListener('mouseup',   (e) => onCropPointerUp(e.clientX, e.clientY));
+            cropCanvas.addEventListener('mouseleave', () => {
+                if (_cropDragging) {
+                    _cropDragging = false;
+                    const w = _cropRect ? Math.abs(_cropRect.x2 - _cropRect.x1) : 0;
+                    const h = _cropRect ? Math.abs(_cropRect.y2 - _cropRect.y1) : 0;
+                    document.getElementById('cropApply').disabled = (w < MIN_CROP_SIZE || h < MIN_CROP_SIZE);
+                    _renderCropCanvas();
+                }
+            });
+
+            cropCanvas.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                const t = e.touches[0];
+                onCropPointerDown(t.clientX, t.clientY);
+            }, { passive: false });
+
+            cropCanvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                const t = e.touches[0];
+                onCropPointerMove(t.clientX, t.clientY);
+            }, { passive: false });
+
+            cropCanvas.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                const t = e.changedTouches[0];
+                onCropPointerUp(t.clientX, t.clientY);
+            }, { passive: false });
+        })();
+
+        document.getElementById('cropApply').addEventListener('click', () => {
+            const result = _applyCrop();
+            document.getElementById('cropModal').style.display = 'none';
+            if (_cropCallback) {
+                _cropCallback(result);
+                _cropCallback = null;
+            }
+        });
+
+        document.getElementById('cropSkip').addEventListener('click', () => {
+            document.getElementById('cropModal').style.display = 'none';
+            if (_cropCallback && _cropInputImg) {
+                _cropCallback(_cropInputImg);
+                _cropCallback = null;
+            }
+        });
+
+        document.getElementById('cropCancel').addEventListener('click', () => {
+            document.getElementById('cropModal').style.display = 'none';
+            _cropCallback = null;
+        });
+
+        document.getElementById('cropClose').addEventListener('click', () => {
+            document.getElementById('cropModal').style.display = 'none';
+            _cropCallback = null;
         });
 
         // ============================================
