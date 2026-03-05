@@ -1,0 +1,18 @@
+name = "Strylez Virtual Try-On"
+client_id = "YOUR_SHOPIFY_CLIENT_ID"
+application_url = "https://YOUR_APP_URL"
+embedded = true
+
+[access_scopes]
+# No API scopes required — the extension uses only Liquid-rendered product
+# data and all try-on processing happens client-side in the customer's browser.
+scopes = ""
+
+[auth]
+redirect_urls = ["https://YOUR_APP_URL/auth/callback"]
+
+[webhooks]
+api_version = "2024-01"
+
+[pos]
+embedded = false
