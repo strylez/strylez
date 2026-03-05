@@ -14,6 +14,9 @@ let lerpLeftShoulderX = 0, lerpLeftShoulderY = 0;
 let lerpRightShoulderX = 0, lerpRightShoulderY = 0;
 let lerpRightHipX = 0, lerpRightHipY = 0;
 let lerpLeftHipX = 0, lerpLeftHipY = 0;
+// True once the first pose has been received; used to snap values
+// immediately instead of lerping from the 0 initial state.
+let poseInitialized = false;
 
 // Cloth configuration
 const upperBodyKeywords = ["top", "shirt", "blouse", "dress"];
@@ -168,36 +171,62 @@ function gotPoses(poses) {
     if (poses.length > 0) {
         const pose = poses[0].pose;
 
-        let nX = pose.keypoints[0].position.x;
-        let nY = pose.keypoints[0].position.y;
-        let eX = pose.keypoints[1].position.x;
-        let eY = pose.keypoints[1].position.y;
+        // Scale keypoint coordinates from the video's native resolution to
+        // the canvas resolution.  For webcam streams p5.js constrains the
+        // capture to canvas dimensions so the scale is ~1; for uploaded
+        // video files the native resolution can be much larger (e.g.
+        // 1920×1080) and without this scaling every coordinate would be 2-4×
+        // too large, placing the overlay far outside the visible body.
+        const videoW = (video && video.elt && video.elt.videoWidth > 0)
+            ? video.elt.videoWidth : width;
+        const videoH = (video && video.elt && video.elt.videoHeight > 0)
+            ? video.elt.videoHeight : height;
+        const scaleX = width / videoW;
+        const scaleY = height / videoH;
 
-        let leftShoulderX = pose.keypoints[6].position.x;
-        let leftShoulderY = pose.keypoints[6].position.y;
-        let rightShoulderX = pose.keypoints[5].position.x;
-        let rightShoulderY = pose.keypoints[5].position.y;
+        const nX = pose.keypoints[0].position.x * scaleX;
+        const nY = pose.keypoints[0].position.y * scaleY;
+        const eX = pose.keypoints[1].position.x * scaleX;
+        const eY = pose.keypoints[1].position.y * scaleY;
 
-        let rightHipX = pose.keypoints[11].position.x;
-        let rightHipY = pose.keypoints[11].position.y;
-        let leftHipX = pose.keypoints[12].position.x;
-        let leftHipY = pose.keypoints[12].position.y;
+        const leftShoulderX  = pose.keypoints[6].position.x * scaleX;
+        const leftShoulderY  = pose.keypoints[6].position.y * scaleY;
+        const rightShoulderX = pose.keypoints[5].position.x * scaleX;
+        const rightShoulderY = pose.keypoints[5].position.y * scaleY;
 
-        // Smooth interpolation
-        noseX = lerp(noseX, nX, 0.5);
-        noseY = lerp(noseY, nY, 0.5);
-        eyelX = lerp(eyelX, eX, 0.5);
-        eyelY = lerp(eyelY, eY, 0.5);
+        const rightHipX = pose.keypoints[11].position.x * scaleX;
+        const rightHipY = pose.keypoints[11].position.y * scaleY;
+        const leftHipX  = pose.keypoints[12].position.x * scaleX;
+        const leftHipY  = pose.keypoints[12].position.y * scaleY;
 
-        lerpLeftShoulderX = lerp(lerpLeftShoulderX, leftShoulderX, 0.1);
-        lerpLeftShoulderY = lerp(lerpLeftShoulderY, leftShoulderY, 0.1);
-        lerpRightShoulderX = lerp(lerpRightShoulderX, rightShoulderX, 0.1);
-        lerpRightShoulderY = lerp(lerpRightShoulderY, rightShoulderY, 0.1);
+        if (!poseInitialized) {
+            // Snap directly to the first detected pose instead of lerping
+            // slowly from the 0 initial state — this makes the overlay appear
+            // at the correct body position immediately on the first frame.
+            noseX = nX; noseY = nY;
+            eyelX = eX; eyelY = eY;
+            lerpLeftShoulderX  = leftShoulderX;  lerpLeftShoulderY  = leftShoulderY;
+            lerpRightShoulderX = rightShoulderX; lerpRightShoulderY = rightShoulderY;
+            lerpLeftHipX  = leftHipX;  lerpLeftHipY  = leftHipY;
+            lerpRightHipX = rightHipX; lerpRightHipY = rightHipY;
+            poseInitialized = true;
+        } else {
+            // Smooth interpolation for continuous tracking
+            noseX = lerp(noseX, nX, 0.5);
+            noseY = lerp(noseY, nY, 0.5);
+            eyelX = lerp(eyelX, eX, 0.5);
+            eyelY = lerp(eyelY, eY, 0.5);
 
-        lerpLeftHipX = lerp(lerpLeftHipX, leftHipX, 0.1);
-        lerpLeftHipY = lerp(lerpLeftHipY, leftHipY, 0.1);
-        lerpRightHipX = lerp(lerpRightHipX, rightHipX, 0.1);
-        lerpRightHipY = lerp(lerpRightHipY, rightHipY, 0.1);
+            lerpLeftShoulderX  = lerp(lerpLeftShoulderX,  leftShoulderX,  0.1);
+            lerpLeftShoulderY  = lerp(lerpLeftShoulderY,  leftShoulderY,  0.1);
+            lerpRightShoulderX = lerp(lerpRightShoulderX, rightShoulderX, 0.1);
+            lerpRightShoulderY = lerp(lerpRightShoulderY, rightShoulderY, 0.1);
+
+            lerpLeftHipX  = lerp(lerpLeftHipX,  leftHipX,  0.1);
+            lerpLeftHipY  = lerp(lerpLeftHipY,  leftHipY,  0.1);
+            lerpRightHipX = lerp(lerpRightHipX, rightHipX, 0.1);
+            lerpRightHipY = lerp(lerpRightHipY, rightHipY, 0.1);
+        }
     }
 }
 
@@ -999,6 +1028,17 @@ function stopWebcam() {
         lastImgRef = null;
         lastImgHeight = -1;
     }
+
+    // Reset pose tracking state so a new session snaps to the first
+    // detected pose instead of continuing from stale previous values.
+    poseInitialized = false;
+    noseX = 0; noseY = 0;
+    eyelX = 0; eyelY = 0;
+    lerpLeftShoulderX = 0; lerpLeftShoulderY = 0;
+    lerpRightShoulderX = 0; lerpRightShoulderY = 0;
+    lerpLeftHipX = 0; lerpLeftHipY = 0;
+    lerpRightHipX = 0; lerpRightHipY = 0;
+
     noLoop();
     started = false;
 
