@@ -331,6 +331,21 @@
             border-radius: 8px;
             user-select: none;
         }
+
+        #eraseCanvasWrapper {
+            text-align: center;
+            margin: 15px 0;
+            overflow: auto;
+            max-height: 55vh;
+        }
+
+        #eraseCanvas {
+            cursor: crosshair;
+            max-width: 100%;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            user-select: none;
+        }
     </style>
 </head>
 <body>
@@ -446,6 +461,32 @@
                 <button id="contourClearAll" class="button button--secondary">Clear All</button>
                 <button id="contourConfirm" class="button button--secondary">Apply Selection</button>
                 <button id="contourCancel" class="button button--danger">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Eraser Modal -->
+    <div id="eraseModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="eraseModalTitle">
+        <div class="modal-content">
+            <span class="close" id="eraseClose" aria-label="Close">&times;</span>
+            <h2 id="eraseModalTitle">Erase Residual Areas</h2>
+            <p class="contour-legend">
+                Drag over any remaining body parts or unwanted areas to erase them.
+                Click <strong>Apply Eraser</strong> to confirm, or <strong>Reset</strong> to undo all erasing.
+            </p>
+            <div class="contour-sensitivity">
+                <label for="eraseBrushSize">Brush Size:</label>
+                <input type="range" id="eraseBrushSize" min="5" max="80" step="1" value="20"
+                    aria-label="Eraser brush size" />
+                <span id="eraseBrushSizeValue">20</span>
+            </div>
+            <div id="eraseCanvasWrapper">
+                <canvas id="eraseCanvas"></canvas>
+            </div>
+            <div class="modal-controls">
+                <button id="eraseConfirm" class="button button--secondary">Apply Eraser</button>
+                <button id="eraseReset" class="button button--secondary">Reset</button>
+                <button id="eraseCancel" class="button button--danger">Cancel</button>
             </div>
         </div>
     </div>
