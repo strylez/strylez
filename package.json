@@ -1,0 +1,15 @@
+{
+  "name": "strylez-virtual-try-on",
+  "version": "1.0.0",
+  "description": "Strylez Virtual Try-On – Shopify Theme App Extension",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "shopify": "shopify"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@shopify/cli": "^3.0.0"
+  }
+}

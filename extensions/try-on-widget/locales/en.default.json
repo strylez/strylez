@@ -1,0 +1,30 @@
+{
+  "try_on": {
+    "button_label": "Try It On",
+    "modal_title": "Virtual Try-On Experience",
+    "how_it_works_label": "How it works",
+    "how_it_works": "Upload a clothing image (or use the product image below), turn on your webcam, and watch it overlay on your body in real-time!",
+    "use_product_image": "Use Product Image",
+    "use_sample_image": "Use Sample Image",
+    "image_url_placeholder": "Or paste an image URL here\u2026",
+    "load_from_url": "Load from URL",
+    "turn_on_webcam": "Turn on Webcam",
+    "load_video_file": "Load Video File",
+    "capture_photo": "Capture Photo",
+    "stop": "Stop",
+    "crop_title": "Crop Image (Optional)",
+    "crop_legend": "Drag on the image to select the area to keep before background removal.",
+    "apply_crop": "Apply Crop",
+    "skip": "Skip",
+    "cancel": "Cancel",
+    "contour_title": "Select Cloth Region",
+    "apply_selection": "Apply Selection",
+    "select_all": "Select All",
+    "clear_all": "Clear All",
+    "erase_title": "Erase Residual Areas",
+    "apply_eraser": "Apply Eraser",
+    "reset": "Reset",
+    "detection_sensitivity": "Detection Sensitivity:",
+    "brush_size": "Brush Size:"
+  }
+}

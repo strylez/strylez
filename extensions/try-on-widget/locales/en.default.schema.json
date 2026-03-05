@@ -1,0 +1,13 @@
+{
+  "settings": {
+    "button_text": {
+      "label": "Button Text"
+    },
+    "button_color": {
+      "label": "Button Background Color"
+    },
+    "button_text_color": {
+      "label": "Button Text Color"
+    }
+  }
+}

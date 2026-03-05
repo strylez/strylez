@@ -1,0 +1,545 @@
+{% comment %}
+  Strylez Virtual Try-On Widget — App Block
+  Renders a "Try On" button on product pages that opens a full virtual
+  try-on experience powered by webcam pose-tracking (p5.js + ml5.js).
+  The current product's featured image is automatically offered as the
+  cloth overlay; merchants can customise button text and colours via
+  the theme editor.
+{% endcomment %}
+
+{% liquid
+  assign _btn_text   = block.settings.button_text
+  assign _btn_color  = block.settings.button_color
+  assign _btn_text_color = block.settings.button_text_color
+  if product.featured_image
+    assign _product_img = product.featured_image | image_url: width: 800
+  else
+    assign _product_img = ''
+  endif
+  assign _product_type  = product.type  | downcase | escape
+  assign _product_title = product.title | downcase | escape
+%}
+
+<style>
+  /* ============================================================
+     Strylez Try-On Widget — Scoped Styles
+     All selectors are prefixed with .strylez- or #strylez- to
+     avoid collisions with the host theme's stylesheet.
+  ============================================================ */
+
+  .strylez-widget * {
+    box-sizing: border-box;
+  }
+
+  .strylez-try-on-btn-wrapper {
+    margin: 16px 0;
+  }
+
+  .strylez-try-on-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 28px;
+    font-size: 15px;
+    font-weight: 600;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: filter 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+    background-color: {{ _btn_color }};
+    color: {{ _btn_text_color }};
+    font-family: inherit;
+  }
+
+  .strylez-try-on-btn:hover {
+    filter: brightness(0.9);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+  }
+
+  .strylez-try-on-btn:active {
+    transform: translateY(0);
+    box-shadow: none;
+  }
+
+  /* Modal overlay */
+  .strylez-modal {
+    display: none;
+    position: fixed;
+    z-index: 100000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.82);
+    animation: strylezFadeIn 0.25s ease;
+  }
+
+  @keyframes strylezFadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  .strylez-modal-content {
+    background-color: #ffffff;
+    margin: auto;
+    padding: 30px;
+    border-radius: 15px;
+    width: 92%;
+    max-width: 760px;
+    max-height: 92vh;
+    overflow-y: auto;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: #333;
+  }
+
+  .strylez-modal-content h2 {
+    margin: 0 0 18px;
+    font-size: 22px;
+    font-weight: 700;
+    color: #333;
+  }
+
+  .strylez-close {
+    color: #999;
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    line-height: 1;
+    transition: color 0.2s;
+  }
+
+  .strylez-close:hover,
+  .strylez-close:focus {
+    color: #333;
+  }
+
+  .strylez-button {
+    display: inline-block;
+    padding: 10px 22px;
+    font-size: 14px;
+    font-weight: 600;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.2s ease;
+    min-width: 130px;
+  }
+
+  .strylez-button--primary {
+    background-color: #667eea;
+    color: #ffffff;
+  }
+
+  .strylez-button--primary:hover {
+    background-color: #5568d3;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
+  }
+
+  .strylez-button--danger {
+    background-color: #ef4444;
+    color: #ffffff;
+  }
+
+  .strylez-button--danger:hover {
+    background-color: #dc2626;
+  }
+
+  .strylez-button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none !important;
+    box-shadow: none !important;
+  }
+
+  .strylez-modal-controls {
+    display: flex;
+    gap: 12px;
+    margin: 18px 0;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  #strylez-videoFrame {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 18px 0;
+    min-height: 280px;
+    background: #f5f5f5;
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  #strylez-videoFrame canvas {
+    max-width: 100%;
+    height: auto;
+    display: block;
+  }
+
+  .strylez-countdown {
+    font-size: 48px;
+    font-weight: bold;
+    color: #667eea;
+    text-align: center;
+    margin: 12px 0;
+    min-height: 58px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .strylez-info-section {
+    background: #f0f4ff;
+    padding: 14px;
+    border-radius: 8px;
+    margin-bottom: 18px;
+    font-size: 13px;
+    color: #555;
+    border-left: 4px solid #667eea;
+  }
+
+  .strylez-hidden {
+    display: none !important;
+  }
+
+  .strylez-input-group {
+    display: flex;
+    gap: 10px;
+    margin: 12px 0;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .strylez-input-group input[type="file"] {
+    padding: 8px 10px;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+
+  .strylez-url-input-group {
+    display: flex;
+    gap: 10px;
+    margin: 8px 0;
+    flex-wrap: wrap;
+    justify-content: center;
+    width: 100%;
+  }
+
+  .strylez-url-input-group input[type="text"] {
+    flex: 1;
+    min-width: 200px;
+    padding: 10px 14px;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.25s;
+    font-family: inherit;
+  }
+
+  .strylez-url-input-group input[type="text"]:focus {
+    border-color: #667eea;
+  }
+
+  /* Contour / Crop / Eraser modals */
+  .strylez-contour-sensitivity {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 10px 0 14px;
+    font-size: 13px;
+    color: #555;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .strylez-contour-sensitivity label {
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .strylez-contour-sensitivity input[type="range"] {
+    flex: 1;
+    min-width: 120px;
+    max-width: 260px;
+    accent-color: #667eea;
+  }
+
+  .strylez-contour-sensitivity span {
+    min-width: 32px;
+    text-align: right;
+    font-weight: 600;
+    color: #667eea;
+  }
+
+  .strylez-contour-legend {
+    font-size: 13px;
+    margin: 6px 0 14px;
+    color: #555;
+  }
+
+  .strylez-sel   { color: #16a34a; font-weight: 700; }
+  .strylez-unsel { color: #dc2626; font-weight: 700; }
+
+  #strylez-contourCanvasWrapper,
+  #strylez-cropCanvasWrapper,
+  #strylez-eraseCanvasWrapper {
+    text-align: center;
+    margin: 14px 0;
+    overflow: auto;
+    max-height: 55vh;
+  }
+
+  #strylez-contourCanvas,
+  #strylez-cropCanvas,
+  #strylez-eraseCanvas {
+    cursor: crosshair;
+    max-width: 100%;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    user-select: none;
+  }
+
+  @media screen and (max-width: 600px) {
+    .strylez-modal-content {
+      width: 96%;
+      padding: 18px;
+    }
+    .strylez-button {
+      min-width: 110px;
+      font-size: 13px;
+      padding: 9px 16px;
+    }
+    .strylez-modal-content h2 {
+      font-size: 18px;
+    }
+  }
+</style>
+
+<!-- ── Try-On trigger button ──────────────────────────────────── -->
+<div class="strylez-widget strylez-try-on-btn-wrapper" {{ block.shopify_attributes }}>
+  <button id="strylez-btn" class="strylez-try-on-btn" aria-haspopup="dialog">
+    <span>👗</span> {{ _btn_text }}
+  </button>
+</div>
+
+<!-- ── Main Try-On Modal ──────────────────────────────────────── -->
+<div id="strylez-modal" class="strylez-modal" role="dialog" aria-modal="true" aria-labelledby="strylez-modalTitle">
+  <div class="strylez-modal-content">
+    <span class="strylez-close" id="strylez-modalClose" aria-label="Close">&times;</span>
+    <h2 id="strylez-modalTitle">{{ 'try_on.modal_title' | t }}</h2>
+
+    <div class="strylez-info-section">
+      <strong>📸 {{ 'try_on.how_it_works_label' | t }}:</strong>
+      {{ 'try_on.how_it_works' | t }}
+    </div>
+
+    <!-- Product image shortcut -->
+    {% if product.featured_image %}
+    <div class="strylez-input-group">
+      <button id="strylez-useProductImage" class="strylez-button strylez-button--primary">
+        Use Product Image
+      </button>
+    </div>
+    {% endif %}
+
+    <!-- Manual image upload -->
+    <div class="strylez-input-group">
+      <input type="file" id="strylez-imageUpload" accept="image/*" />
+      <button id="strylez-useSampleImage" class="strylez-button strylez-button--primary">
+        Use Sample Image
+      </button>
+    </div>
+
+    <!-- URL input -->
+    <div class="strylez-url-input-group">
+      <input type="text" id="strylez-imageUrlInput"
+             placeholder="Or paste an image URL here…"
+             aria-label="Image URL for overlay" />
+      <button id="strylez-loadImageUrl" class="strylez-button strylez-button--primary"
+              aria-describedby="strylez-imageUrlInput">
+        Load from URL
+      </button>
+    </div>
+
+    <!-- Camera / video controls -->
+    <div class="strylez-modal-controls">
+      <button id="strylez-selectedDress" class="strylez-button strylez-button--primary" disabled>
+        Turn on Webcam
+      </button>
+      <button id="strylez-loadVideoBtn" class="strylez-button strylez-button--primary" disabled>
+        Load Video File
+      </button>
+      <input type="file" id="strylez-videoFileInput" accept="video/*" style="display:none;" />
+      <button id="strylez-takeScreenshot" class="strylez-button strylez-button--primary strylez-hidden">
+        Capture Photo
+      </button>
+      <button id="strylez-stopBtn" class="strylez-button strylez-button--danger strylez-hidden">
+        Stop
+      </button>
+    </div>
+
+    <!-- Live feed -->
+    <div id="strylez-videoFrame"></div>
+
+    <!-- Countdown -->
+    <div id="strylez-countdown" class="strylez-countdown"></div>
+
+    <!-- Hidden dress-type hint (used by JS) -->
+    <button id="strylez-selectedDressType" value="{{ _product_type }}" style="display:none;">Dress Type</button>
+  </div>
+</div>
+
+<!-- ── Crop Selector Modal ───────────────────────────────────── -->
+<div id="strylez-cropModal" class="strylez-modal" role="dialog" aria-modal="true" aria-labelledby="strylez-cropModalTitle">
+  <div class="strylez-modal-content">
+    <span class="strylez-close" id="strylez-cropClose" aria-label="Close">&times;</span>
+    <h2 id="strylez-cropModalTitle">Crop Image (Optional)</h2>
+    <p class="strylez-contour-legend">
+      Drag on the image to select the area to keep before background removal.
+      Click <strong>Apply Crop</strong> to confirm, or <strong>Skip</strong> to use the full image.
+    </p>
+    <div id="strylez-cropCanvasWrapper">
+      <canvas id="strylez-cropCanvas"></canvas>
+    </div>
+    <div class="strylez-modal-controls">
+      <button id="strylez-cropApply"  class="strylez-button strylez-button--primary" disabled>Apply Crop</button>
+      <button id="strylez-cropSkip"   class="strylez-button strylez-button--primary">Skip</button>
+      <button id="strylez-cropCancel" class="strylez-button strylez-button--danger">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Contour Region Selector Modal ────────────────────────── -->
+<div id="strylez-contourModal" class="strylez-modal" role="dialog" aria-modal="true" aria-labelledby="strylez-contourModalTitle">
+  <div class="strylez-modal-content">
+    <span class="strylez-close" id="strylez-contourClose" aria-label="Close">&times;</span>
+    <h2 id="strylez-contourModalTitle">Select Cloth Region</h2>
+    <p class="strylez-contour-legend">
+      Click the regions you want to <strong>keep</strong>.&nbsp;
+      <span class="strylez-sel">■ Green = selected (kept)</span>&nbsp;&nbsp;
+      <span class="strylez-unsel">■ Red = not selected (removed)</span>
+    </p>
+    <div class="strylez-contour-sensitivity">
+      <label for="strylez-contourSensitivity">Detection Sensitivity:</label>
+      <input type="range" id="strylez-contourSensitivity" min="0" max="200" step="5" value="40"
+             aria-label="Contour detection sensitivity" />
+      <span id="strylez-contourSensitivityValue">40</span>
+    </div>
+    <div id="strylez-contourCanvasWrapper">
+      <canvas id="strylez-contourCanvas"></canvas>
+    </div>
+    <div class="strylez-modal-controls">
+      <button id="strylez-contourSelectAll" class="strylez-button strylez-button--primary">Select All</button>
+      <button id="strylez-contourClearAll"  class="strylez-button strylez-button--primary">Clear All</button>
+      <button id="strylez-contourConfirm"   class="strylez-button strylez-button--primary">Apply Selection</button>
+      <button id="strylez-contourCancel"    class="strylez-button strylez-button--danger">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Eraser Modal ──────────────────────────────────────────── -->
+<div id="strylez-eraseModal" class="strylez-modal" role="dialog" aria-modal="true" aria-labelledby="strylez-eraseModalTitle">
+  <div class="strylez-modal-content">
+    <span class="strylez-close" id="strylez-eraseClose" aria-label="Close">&times;</span>
+    <h2 id="strylez-eraseModalTitle">Erase Residual Areas</h2>
+    <p class="strylez-contour-legend">
+      Drag over any remaining body parts or unwanted areas to erase them.
+      Click <strong>Apply Eraser</strong> to confirm, or <strong>Reset</strong> to undo all erasing.
+    </p>
+    <div class="strylez-contour-sensitivity">
+      <label for="strylez-eraseBrushSize">Brush Size:</label>
+      <input type="range" id="strylez-eraseBrushSize" min="5" max="80" step="1" value="20"
+             aria-label="Eraser brush size" />
+      <span id="strylez-eraseBrushSizeValue">20</span>
+    </div>
+    <div id="strylez-eraseCanvasWrapper">
+      <canvas id="strylez-eraseCanvas"></canvas>
+    </div>
+    <div class="strylez-modal-controls">
+      <button id="strylez-eraseConfirm" class="strylez-button strylez-button--primary">Apply Eraser</button>
+      <button id="strylez-eraseReset"   class="strylez-button strylez-button--primary">Reset</button>
+      <button id="strylez-eraseCancel"  class="strylez-button strylez-button--danger">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Product config passed to JS ──────────────────────────── -->
+<script>
+  window.strylezTryOnConfig = {
+    productImage: {{ _product_img | json }},
+    productType:  {{ _product_type  | json }},
+    productTitle: {{ _product_title | json }}
+  };
+</script>
+
+<!-- ── p5.js + ml5.js (loaded once via guard) ────────────────── -->
+<script>
+  (function () {
+    function loadScript(src, onload, integrity) {
+      if (document.querySelector('script[src="' + src + '"]')) {
+        if (onload) onload();
+        return;
+      }
+      var s = document.createElement('script');
+      s.src = src;
+      if (integrity) {
+        s.integrity = integrity;
+        s.crossOrigin = 'anonymous';
+      }
+      s.onload = onload || null;
+      document.head.appendChild(s);
+    }
+
+    var P5_URL   = 'https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.min.js';
+    var P5_SRI   = 'sha384-nsRvgiO5P42FWyV8REtBeXA3sA7ilCdgtB8rnpiR2ZjNmRh/MD/CMSc7HR6g7ewX';
+    // TODO: generate sha384 for ml5 via `curl -s URL | openssl dgst -sha384 -binary | openssl base64 -A`
+    var ML5_URL  = 'https://unpkg.com/ml5@0.12.0/dist/ml5.min.js';
+    var MAIN_URL = {{ 'virtual-try-on.js' | asset_url | json }};
+
+    loadScript(P5_URL, function () {
+      loadScript(ML5_URL, function () {
+        loadScript(MAIN_URL);
+      }, null);
+    }, P5_SRI);
+  })();
+</script>
+
+{% schema %}
+{
+  "name": "Virtual Try-On",
+  "target": "section",
+  "settings": [
+    {
+      "type": "text",
+      "id": "button_text",
+      "label": "Button Text",
+      "default": "Try It On"
+    },
+    {
+      "type": "color",
+      "id": "button_color",
+      "label": "Button Background Color",
+      "default": "#667eea"
+    },
+    {
+      "type": "color",
+      "id": "button_text_color",
+      "label": "Button Text Color",
+      "default": "#ffffff"
+    }
+  ]
+}
+{% endschema %}

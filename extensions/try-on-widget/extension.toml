@@ -1,0 +1,6 @@
+api_version = "2024-01"
+
+[[extensions]]
+  type = "theme"
+  name = "Virtual Try-On Widget"
+  handle = "try-on-widget"
