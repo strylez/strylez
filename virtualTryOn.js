@@ -55,6 +55,21 @@ let _cropDragStartX = 0;
 let _cropDragStartY = 0;
 
 // ============================================
+// Eraser state
+// ============================================
+let _eraseInputImg = null;
+let _eraseCallback = null;
+let _eraseScale = 1;
+let _erasePixels = null;
+let _eraseOriginalPixels = null;
+let _eraseImgW = 0;
+let _eraseImgH = 0;
+let _eraseIsDrawing = false;
+let _eraseBrushSize = 20;
+let _eraseCursorX = -1;
+let _eraseCursorY = -1;
+
+// ============================================
 // DOM Elements
 // ============================================
 const modal = document.getElementById("myModal");
@@ -100,9 +115,11 @@ imageUpload.addEventListener('change', (e) => {
         reader.onload = (event) => {
             loadImage(event.target.result, (loadedImage) => {
                 showCropSelector(loadedImage, (croppedImage) => {
-                    showContourSelector(croppedImage, (result) => {
-                        img = result;
-                        enableControls();
+                    showContourSelector(croppedImage, (contourResult) => {
+                        showEraseSelector(contourResult, (finalResult) => {
+                            img = finalResult;
+                            enableControls();
+                        });
                     });
                 });
             });
@@ -114,9 +131,11 @@ imageUpload.addEventListener('change', (e) => {
 useSampleImageBtn.onclick = () => {
     loadImage(SAMPLE_IMAGE_URL, (loadedImage) => {
         showCropSelector(loadedImage, (croppedImage) => {
-            showContourSelector(croppedImage, (result) => {
-                img = result;
-                enableControls();
+            showContourSelector(croppedImage, (contourResult) => {
+                showEraseSelector(contourResult, (finalResult) => {
+                    img = finalResult;
+                    enableControls();
+                });
             });
         });
     });
@@ -130,9 +149,11 @@ loadImageUrlBtn.onclick = () => {
     }
     loadImage(url, (loadedImage) => {
         showCropSelector(loadedImage, (croppedImage) => {
-            showContourSelector(croppedImage, (result) => {
-                img = result;
-                enableControls();
+            showContourSelector(croppedImage, (contourResult) => {
+                showEraseSelector(contourResult, (finalResult) => {
+                    img = finalResult;
+                    enableControls();
+                });
             });
         });
     }, () => {
@@ -506,6 +527,139 @@ function _applyContourSelection() {
     const result = createGraphics(cw, ch);
     result.copy(tempCanvas, minX, minY, cw, ch, 0, 0, cw, ch);
     tempCanvas.remove();
+    return result.get();
+}
+
+// ============================================
+// Interactive Eraser
+// ============================================
+
+// Opens the eraser modal. After the user confirms, callback is invoked
+// with the resulting p5.Image (pixels erased by the user are transparent).
+function showEraseSelector(inputImg, callback) {
+    _eraseInputImg = inputImg;
+    _eraseCallback = callback;
+    _eraseImgW = inputImg.width;
+    _eraseImgH = inputImg.height;
+    _eraseIsDrawing = false;
+    _eraseCursorX = -1;
+    _eraseCursorY = -1;
+
+    // Cache raw pixels for interactive erasing
+    const tmpGfx = createGraphics(_eraseImgW, _eraseImgH);
+    tmpGfx.pixelDensity(1);
+    tmpGfx.image(inputImg, 0, 0);
+    tmpGfx.loadPixels();
+    _erasePixels = tmpGfx.pixels.slice();
+    _eraseOriginalPixels = tmpGfx.pixels.slice();
+    tmpGfx.remove();
+
+    const htmlCanvas = document.getElementById('eraseCanvas');
+    const maxW = Math.min(560, Math.floor(window.innerWidth * 0.78));
+    _eraseScale = Math.min(1, maxW / _eraseImgW);
+    htmlCanvas.width = Math.round(_eraseImgW * _eraseScale);
+    htmlCanvas.height = Math.round(_eraseImgH * _eraseScale);
+
+    _eraseBrushSize = parseInt(document.getElementById('eraseBrushSize').value, 10);
+    document.getElementById('eraseBrushSizeValue').textContent = _eraseBrushSize;
+
+    _renderEraseCanvas();
+    document.getElementById('eraseModal').style.display = 'block';
+}
+
+// Renders the current erased image onto #eraseCanvas, with a checkered
+// background to show transparent areas and a brush cursor preview.
+function _renderEraseCanvas() {
+    const htmlCanvas = document.getElementById('eraseCanvas');
+    const ctx = htmlCanvas.getContext('2d');
+    const dw = htmlCanvas.width;
+    const dh = htmlCanvas.height;
+
+    // Draw checkerboard background to indicate transparency
+    const tileSize = 10;
+    for (let ty = 0; ty < dh; ty += tileSize) {
+        for (let tx = 0; tx < dw; tx += tileSize) {
+            const isLight = ((Math.floor(tx / tileSize) + Math.floor(ty / tileSize)) % 2 === 0);
+            ctx.fillStyle = isLight ? '#d0d0d0' : '#ffffff';
+            ctx.fillRect(tx, ty, Math.min(tileSize, dw - tx), Math.min(tileSize, dh - ty));
+        }
+    }
+
+    // Draw current (possibly erased) image pixels on top
+    const tmpCanvas = document.createElement('canvas');
+    tmpCanvas.width = _eraseImgW;
+    tmpCanvas.height = _eraseImgH;
+    const tmpCtx = tmpCanvas.getContext('2d');
+    const imgData = tmpCtx.createImageData(_eraseImgW, _eraseImgH);
+    imgData.data.set(_erasePixels);
+    tmpCtx.putImageData(imgData, 0, 0);
+    ctx.drawImage(tmpCanvas, 0, 0, dw, dh);
+
+    // Draw brush cursor preview circle
+    if (_eraseCursorX >= 0 && _eraseCursorY >= 0) {
+        ctx.beginPath();
+        ctx.arc(
+            _eraseCursorX * _eraseScale,
+            _eraseCursorY * _eraseScale,
+            _eraseBrushSize * _eraseScale,
+            0, Math.PI * 2
+        );
+        ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+    }
+}
+
+// Erases pixels within a circular brush area centred at (srcX, srcY).
+function _eraseAt(srcX, srcY) {
+    const r = _eraseBrushSize;
+    const x0 = Math.max(0, srcX - r);
+    const y0 = Math.max(0, srcY - r);
+    const x1 = Math.min(_eraseImgW - 1, srcX + r);
+    const y1 = Math.min(_eraseImgH - 1, srcY + r);
+    const r2 = r * r;
+
+    for (let y = y0; y <= y1; y++) {
+        for (let x = x0; x <= x1; x++) {
+            if ((x - srcX) * (x - srcX) + (y - srcY) * (y - srcY) <= r2) {
+                _erasePixels[(y * _eraseImgW + x) * 4 + 3] = 0;
+            }
+        }
+    }
+}
+
+// Builds a p5.Image from the current (erased) pixel state, tightly
+// cropped to the bounding box of remaining opaque pixels.
+function _applyErase() {
+    let minX = _eraseImgW, minY = _eraseImgH, maxX = -1, maxY = -1;
+    for (let y = 0; y < _eraseImgH; y++) {
+        for (let x = 0; x < _eraseImgW; x++) {
+            if (_erasePixels[(y * _eraseImgW + x) * 4 + 3] > 0) {
+                if (x < minX) minX = x;
+                if (y < minY) minY = y;
+                if (x > maxX) maxX = x;
+                if (y > maxY) maxY = y;
+            }
+        }
+    }
+
+    if (maxX < minX || maxY < minY) return _eraseInputImg;
+
+    const cw = maxX - minX + 1;
+    const ch = maxY - minY + 1;
+
+    const tempGfx = createGraphics(_eraseImgW, _eraseImgH);
+    tempGfx.pixelDensity(1);
+    tempGfx.loadPixels();
+    for (let i = 0; i < _erasePixels.length; i++) {
+        tempGfx.pixels[i] = _erasePixels[i];
+    }
+    tempGfx.updatePixels();
+
+    const result = createGraphics(cw, ch);
+    result.pixelDensity(1);
+    result.copy(tempGfx, minX, minY, cw, ch, 0, 0, cw, ch);
+    tempGfx.remove();
     return result.get();
 }
 
@@ -1062,6 +1216,105 @@ document.getElementById('cropClose').addEventListener('click', () => {
     document.getElementById('cropModal').style.display = 'none';
     _cropCallback = null;
 });
+
+// ============================================
+// Eraser Event Listeners
+// ============================================
+(function () {
+    const eraseCanvas = document.getElementById('eraseCanvas');
+
+    function getEraseSrcCoords(clientX, clientY) {
+        const rect = eraseCanvas.getBoundingClientRect();
+        return {
+            srcX: Math.max(0, Math.min(_eraseImgW - 1, Math.round((clientX - rect.left) / _eraseScale))),
+            srcY: Math.max(0, Math.min(_eraseImgH - 1, Math.round((clientY - rect.top) / _eraseScale)))
+        };
+    }
+
+    function onErasePointerDown(clientX, clientY) {
+        if (!_erasePixels) return;
+        _eraseIsDrawing = true;
+        const { srcX, srcY } = getEraseSrcCoords(clientX, clientY);
+        _eraseCursorX = srcX;
+        _eraseCursorY = srcY;
+        _eraseAt(srcX, srcY);
+        _renderEraseCanvas();
+    }
+
+    function onErasePointerMove(clientX, clientY) {
+        if (!_erasePixels) return;
+        const { srcX, srcY } = getEraseSrcCoords(clientX, clientY);
+        _eraseCursorX = srcX;
+        _eraseCursorY = srcY;
+        if (_eraseIsDrawing) {
+            _eraseAt(srcX, srcY);
+        }
+        _renderEraseCanvas();
+    }
+
+    function onErasePointerUp() {
+        _eraseIsDrawing = false;
+    }
+
+    eraseCanvas.addEventListener('mousedown', (e) => onErasePointerDown(e.clientX, e.clientY));
+    eraseCanvas.addEventListener('mousemove', (e) => onErasePointerMove(e.clientX, e.clientY));
+    eraseCanvas.addEventListener('mouseup', onErasePointerUp);
+    eraseCanvas.addEventListener('mouseleave', () => {
+        _eraseIsDrawing = false;
+        _eraseCursorX = -1;
+        _eraseCursorY = -1;
+        _renderEraseCanvas();
+    });
+
+    eraseCanvas.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        const t = e.touches[0];
+        onErasePointerDown(t.clientX, t.clientY);
+    }, { passive: false });
+
+    eraseCanvas.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        const t = e.touches[0];
+        onErasePointerMove(t.clientX, t.clientY);
+    }, { passive: false });
+
+    eraseCanvas.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        onErasePointerUp();
+    }, { passive: false });
+})();
+
+document.getElementById('eraseBrushSize').addEventListener('input', (e) => {
+    _eraseBrushSize = parseInt(e.target.value, 10);
+    document.getElementById('eraseBrushSizeValue').textContent = _eraseBrushSize;
+    _renderEraseCanvas();
+});
+
+document.getElementById('eraseConfirm').addEventListener('click', () => {
+    const result = _applyErase();
+    document.getElementById('eraseModal').style.display = 'none';
+    if (_eraseCallback) {
+        _eraseCallback(result);
+        _eraseCallback = null;
+    }
+});
+
+document.getElementById('eraseReset').addEventListener('click', () => {
+    if (!_eraseOriginalPixels) return;
+    _erasePixels = _eraseOriginalPixels.slice();
+    _renderEraseCanvas();
+});
+
+function _dismissEraseModal() {
+    document.getElementById('eraseModal').style.display = 'none';
+    if (_eraseCallback) {
+        _eraseCallback(_eraseInputImg);
+        _eraseCallback = null;
+    }
+}
+
+document.getElementById('eraseCancel').addEventListener('click', _dismissEraseModal);
+document.getElementById('eraseClose').addEventListener('click', _dismissEraseModal);
 
 // ============================================
 // Event Listeners
