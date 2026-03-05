@@ -1018,6 +1018,23 @@ function cleanup() {
         stopWebcam();
     }
     countdownEl.textContent = '';
+
+    // Reset loaded cloth image
+    img = null;
+
+    // Reset file and URL input fields
+    imageUpload.value = '';
+    imageUrlInput.value = '';
+
+    // Disable webcam/video controls until a new image is loaded
+    startBtn.disabled = true;
+    loadVideoBtn.disabled = true;
+
+    // Clear the video frame display area
+    const videoFrame = document.getElementById('videoFrame');
+    if (videoFrame) {
+        videoFrame.innerHTML = '';
+    }
 }
 
 // ============================================
